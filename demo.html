@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MSRA 中文实体识别 · BERT-BiLSTM-CRF</title>
+  <style>
+    :root{font-family:"Microsoft YaHei",system-ui,sans-serif;color:#19233b;background:#f2f6fc}
+    *{box-sizing:border-box} body{margin:0} main{max-width:960px;margin:38px auto;padding:0 22px 50px}
+    header{margin-bottom:24px} .eyebrow{color:#275ca6;font-weight:700;letter-spacing:.08em;font-size:13px}
+    h1{font-size:34px;line-height:1.3;margin:8px 0} p{line-height:1.65} .muted{color:#63728d}
+    .card{background:#fff;border:1px solid #dce5f2;border-radius:16px;padding:24px;margin:18px 0;box-shadow:0 8px 24px #1223410a}
+    h2{font-size:21px;margin:0 0 14px} textarea{width:100%;min-height:132px;resize:vertical;border:1px solid #b8c8dc;border-radius:10px;padding:14px;font:inherit;font-size:18px;line-height:1.6;color:#19233b}
+    textarea:focus,button:focus-visible{outline:3px solid #90b8ff;outline-offset:2px}
+    .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
+    button{border:1px solid #245daa;border-radius:8px;background:#245daa;color:white;font:inherit;font-size:15px;font-weight:600;padding:10px 16px;cursor:pointer}
+    button.secondary{background:#fff;color:#245daa} button:disabled{opacity:.55;cursor:wait}
+    .small{font-size:13px;color:#63728d} #status{min-height:23px;margin-top:12px} #status.error{color:#b42318}
+    .statline{display:flex;gap:10px;flex-wrap:wrap} .stat{background:#eef4ff;color:#27518d;border-radius:100px;padding:5px 12px;font-size:14px}
+    .legend{display:flex;gap:15px;color:#63728d;font-size:14px;margin:10px 0 16px}.dot{width:12px;height:12px;display:inline-block;border-radius:3px;margin-right:5px}
+    .sentence{font-size:22px;line-height:2.25;overflow-wrap:anywhere;border:1px solid #e2e9f3;border-radius:12px;padding:14px 16px}
+    mark{border-radius:5px;padding:2px 3px;color:#19233b}.person{background:#ffe0d7}.org{background:#d9e8ff}.place{background:#d9f2df}
+    table{width:100%;border-collapse:collapse;margin-top:17px} th,td{text-align:left;padding:9px;border-bottom:1px solid #e1e8f1} th{color:#63728d;font-weight:600}
+    .scroll{overflow:auto} footer{font-size:13px;color:#63728d;margin-top:18px}
+    @media(max-width:600px){h1{font-size:27px}.card{padding:18px}.sentence{font-size:18px}}
+  </style>
+</head>
+<body><main>
+  <header>
+    <div class="eyebrow">公开数据集复现实验</div>
+    <h1>中文命名实体识别</h1>
+    <p class="muted">UER 中文 BERT 结构轻量模型 → 双向 LSTM → CRF · 使用 MSRA NER 训练，识别人名、机构名和地名</p>
+    <div class="statline" id="stats"><span class="stat">读取本机实验结果中…</span></div>
+  </header>
+  <section class="card">
+    <h2>输入一段中文</h2>
+    <textarea id="input" aria-label="待识别文本">张三在北京大学学习，后来去了上海。</textarea>
+    <div class="controls">
+      <button id="run">开始识别</button>
+      <button class="secondary" id="sample">换一条示例</button>
+      <span class="small">最多 96 字；字符位置从 0 开始</span>
+    </div>
+    <p id="status" role="status"></p>
+  </section>
+  <section class="card" id="result" hidden>
+    <h2>识别结果</h2>
+    <div class="legend"><span><i class="dot person"></i>人名</span><span><i class="dot org"></i>机构名</span><span><i class="dot place"></i>地名</span></div>
+    <div class="sentence" id="highlight"></div>
+    <div class="scroll"><table><thead><tr><th>实体</th><th>类别</th><th>起始位置</th><th>结束位置</th></tr></thead><tbody id="rows"></tbody></table></div>
+  </section>
+  <footer>本网页展示本机训练的子集模型；测试分数不代表完整 MSRA 数据集或论文报告分数。训练设置和评估结果见仓库 README。</footer>
+</main>
+<script>
+const input=document.querySelector('#input'),run=document.querySelector('#run'),status=document.querySelector('#status');
+const result=document.querySelector('#result'),highlight=document.querySelector('#highlight'),rows=document.querySelector('#rows');
+const classes={人名:'person',机构名:'org',地名:'place'};
+let sampleIndex=0;
+const examples=['张三在北京大学学习，后来去了上海。','李华加入中国科学院，今天来到北京参加会议。','赵敏毕业于浙江大学，现在住在杭州。'];
+document.querySelector('#sample').onclick=()=>{sampleIndex=(sampleIndex+1)%examples.length;input.value=examples[sampleIndex];result.hidden=true;status.textContent='';};
+function draw(data){
+  result.hidden=false;highlight.replaceChildren();rows.replaceChildren();let position=0;
+  for(const entity of data.entities){
+    if(entity.start<position)continue;
+    highlight.append(document.createTextNode(data.text.slice(position,entity.start)));
+    const mark=document.createElement('mark');mark.className=classes[entity.label]||'';mark.textContent=entity.text;highlight.append(mark);
+    position=entity.end;
+    const tr=document.createElement('tr');
+    for(const value of [entity.text,entity.label,entity.start,entity.end]){const td=document.createElement('td');td.textContent=value;tr.append(td);}
+    rows.append(tr);
+  }
+  highlight.append(document.createTextNode(data.text.slice(position)));
+  if(!data.entities.length){const tr=document.createElement('tr');const td=document.createElement('td');td.colSpan=4;td.textContent='未识别到实体';tr.append(td);rows.append(tr);}
+  result.scrollIntoView({behavior:'smooth',block:'start'});
+}
+run.onclick=async()=>{
+  run.disabled=true;status.className='';status.textContent='正在识别…';
+  try{
+    const response=await fetch('/api/ner',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:input.value})});
+    const data=await response.json();if(!response.ok)throw Error(data.error||'请求失败');
+    draw(data);status.textContent=`识别完成：${data.entities.length} 个实体。`;
+  }catch(error){status.className='error';status.textContent=error.message;}finally{run.disabled=false;}
+};
+fetch('/api/summary').then(r=>r.json()).then(data=>{
+  const stats=document.querySelector('#stats');stats.replaceChildren();
+  const labels=data.trained?[`训练 ${data.train_size} 句`,`开发 ${data.dev_size} 句`,`测试 ${data.test_size} 句`,`实体级 F1 ${(data.f1*100).toFixed(1)}%`] : ['模型尚未训练'];
+  for(const label of labels){const span=document.createElement('span');span.className='stat';span.textContent=label;stats.append(span);}
+}).catch(()=>{});
+</script></body></html>
