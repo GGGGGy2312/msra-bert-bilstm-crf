@@ -5,55 +5,59 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>MSRA 中文实体识别 · BERT-BiLSTM-CRF</title>
   <style>
-    :root{font-family:"Microsoft YaHei",system-ui,sans-serif;color:#19233b;background:#f2f6fc}
-    *{box-sizing:border-box} body{margin:0} main{max-width:960px;margin:38px auto;padding:0 22px 50px}
-    header{margin-bottom:24px} .eyebrow{color:#275ca6;font-weight:700;letter-spacing:.08em;font-size:13px}
-    h1{font-size:34px;line-height:1.3;margin:8px 0} p{line-height:1.65} .muted{color:#63728d}
-    .card{background:#fff;border:1px solid #dce5f2;border-radius:16px;padding:24px;margin:18px 0;box-shadow:0 8px 24px #1223410a}
-    h2{font-size:21px;margin:0 0 14px} textarea{width:100%;min-height:132px;resize:vertical;border:1px solid #b8c8dc;border-radius:10px;padding:14px;font:inherit;font-size:18px;line-height:1.6;color:#19233b}
-    select{border:1px solid #b8c8dc;border-radius:8px;background:#fff;color:#19233b;font:inherit;padding:10px;max-width:100%}
-    textarea:focus,button:focus-visible{outline:3px solid #90b8ff;outline-offset:2px}
-    .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
-    button{border:1px solid #245daa;border-radius:8px;background:#245daa;color:white;font:inherit;font-size:15px;font-weight:600;padding:10px 16px;cursor:pointer}
-    button.secondary{background:#fff;color:#245daa} button:disabled{opacity:.55;cursor:wait}
-    .small{font-size:13px;color:#63728d} #status{min-height:23px;margin-top:12px} #status.error{color:#b42318}
-    .statline{display:flex;gap:10px;flex-wrap:wrap} .stat{background:#eef4ff;color:#27518d;border-radius:100px;padding:5px 12px;font-size:14px}
-    #entityStats{margin-bottom:14px}
-    .legend{display:flex;gap:15px;color:#63728d;font-size:14px;margin:10px 0 16px}.dot{width:12px;height:12px;display:inline-block;border-radius:3px;margin-right:5px}
-    .sentence{font-size:22px;line-height:2.25;white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid #e2e9f3;border-radius:12px;padding:14px 16px}
-    mark{border-radius:5px;padding:2px 3px;color:#19233b}.person{background:#ffe0d7}.org{background:#d9e8ff}.place{background:#d9f2df}
-    table{width:100%;border-collapse:collapse;margin-top:17px} th,td{text-align:left;padding:9px;border-bottom:1px solid #e1e8f1} th{color:#63728d;font-weight:600}
-    .scroll{overflow:auto} footer{font-size:13px;color:#63728d;margin-top:18px}
-    @media(max-width:600px){h1{font-size:27px}.card{padding:18px}.sentence{font-size:18px}}
+    :root{font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;color:#172b3a;background:#f3f7fa}
+    *{box-sizing:border-box} [hidden]{display:none!important} body{margin:0;background:radial-gradient(circle at 90% 0,#dceef1 0,transparent 35%),#f3f7fa}
+    main{max-width:1080px;margin:0 auto;padding:28px 20px 56px} p{line-height:1.65}
+    header{position:relative;overflow:hidden;padding:34px 38px;border-radius:22px;background:linear-gradient(125deg,#12354d,#176276);color:#fff;box-shadow:0 18px 35px #18485b25}
+    header:after{content:"";position:absolute;width:280px;height:280px;right:-80px;top:-150px;border:1px solid #ffffff32;border-radius:50%;box-shadow:0 0 0 38px #ffffff09,0 0 0 82px #ffffff07;pointer-events:none}
+    .eyebrow{color:#bdebdc;font-weight:700;letter-spacing:.12em;font-size:13px} h1{font-size:clamp(29px,4vw,40px);line-height:1.25;margin:10px 0 12px}
+    header p{max-width:720px;margin:0 0 25px;color:#e5f2f3}.statline{display:flex;gap:9px;flex-wrap:wrap}.stat{background:#e8f3fa;color:#24526c;border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600}
+    #stats .stat{background:#ffffff1e;border:1px solid #ffffff24;color:#f3fbfb}
+    .card{background:#fff;border:1px solid #dce8ed;border-radius:20px;padding:28px 32px;margin:22px 0;box-shadow:0 8px 30px #173a4b0c}
+    .section-head{display:flex;align-items:center;gap:11px;margin-bottom:20px}.step{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:10px;background:#dff2eb;color:#14634e;font-weight:800;flex:none}
+    h2{font-size:22px;margin:0}.field-label{display:block;color:#2c4353;font-size:14px;font-weight:700;margin:0 0 8px}.example-bar{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:20px}.example-field{flex:1;min-width:240px}
+    select,textarea{font:inherit;color:#172b3a;background:#fff;border:1px solid #b9ced8;border-radius:11px}
+    select{width:100%;height:46px;padding:0 12px} textarea{display:block;width:100%;min-height:185px;resize:vertical;padding:15px 17px;font-size:17px;line-height:1.85}
+    select:focus-visible,textarea:focus-visible,button:focus-visible{outline:3px solid #7acbb5;outline-offset:2px;border-color:#278a70}
+    .input-meta{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-top:8px;font-size:13px;color:#627987}
+    .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:18px} button{border:1px solid #1b705d;border-radius:10px;background:#1b705d;color:#fff;font:inherit;font-size:15px;font-weight:700;padding:11px 17px;cursor:pointer;transition:background .15s,transform .15s,box-shadow .15s}
+    button:hover:not(:disabled){background:#155844;transform:translateY(-1px);box-shadow:0 6px 14px #1b705d27} button.primary{font-size:17px;padding:13px 26px;box-shadow:0 5px 12px #1b705d25}
+    button.secondary{background:#fff;color:#1b705d;border-color:#b6d3ca} button.secondary:hover:not(:disabled){background:#eaf7f1} button:disabled{opacity:.55;cursor:wait;box-shadow:none}
+    .small{font-size:13px;color:#627987} #status{min-height:24px;margin:12px 0 0;color:#1b705d;font-size:14px;font-weight:600} #status.error{color:#ad342b}
+    .help{margin:3px 0 0}.legend{display:flex;gap:15px;flex-wrap:wrap;color:#516978;font-size:14px;margin:0 0 16px}.dot{width:12px;height:12px;display:inline-block;border-radius:3px;margin-right:6px;vertical-align:-1px}
+    #entityStats{margin-bottom:17px}#entityStats .stat{font-size:15px;padding:10px 14px}
+    .result-label{font-size:14px;font-weight:700;color:#3a5360;margin:22px 0 9px}.sentence{font-size:19px;line-height:2.2;white-space:pre-wrap;overflow-wrap:anywhere;background:#fbfdfd;border:1px solid #dce8ed;border-radius:12px;padding:18px 20px}
+    mark{border-radius:5px;padding:2px 3px;color:#172b3a;box-decoration-break:clone}.person{background:#ffe1d5}.org{background:#d9e8ff}.place{background:#d9f2df}
+    .scroll{overflow:auto;border:1px solid #e1eaef;border-radius:12px}table{width:100%;border-collapse:collapse;min-width:540px}th,td{text-align:left;padding:12px 15px;border-bottom:1px solid #e8eff2}th{color:#4f6773;font-size:13px;font-weight:700;background:#f3f8fa;position:sticky;top:0}tr:last-child td{border-bottom:0}tbody tr:nth-child(even){background:#fbfdfd}
+    footer{font-size:13px;color:#617781;line-height:1.7;margin:18px 4px}
+    @media(max-width:600px){main{padding:12px 12px 36px}header{padding:28px 22px}.card{padding:22px 18px;border-radius:16px}.sentence{font-size:17px;padding:14px}.input-meta{align-items:flex-start;flex-direction:column}.controls button.primary{width:100%}}
+    @media(prefers-reduced-motion:reduce){button{transition:none}}
   </style>
 </head>
 <body><main>
   <header>
     <div class="eyebrow">公开数据集复现实验</div>
     <h1>中文命名实体识别</h1>
-    <p class="muted">UER 中文 BERT 结构轻量模型 → 双向 LSTM → CRF · 使用 MSRA NER 训练，识别人名、机构名和地名</p>
+    <p>UER 中文 BERT 结构轻量模型 → 双向 LSTM → CRF · 使用 MSRA NER 训练，识别人名、机构名和地名</p>
     <div class="statline" id="stats"><span class="stat">读取本机实验结果中…</span></div>
   </header>
   <section class="card">
-    <h2>输入一段中文</h2>
-    <textarea id="input" aria-label="待识别文本" maxlength="2000">张三在北京大学学习，后来去了上海。</textarea>
-    <div class="controls">
-      <button id="run">开始识别</button>
-      <select id="exampleSelect" aria-label="选择示例"></select>
-      <button class="secondary" id="sample">加载所选示例</button>
-      <button class="secondary" id="advanced">加载进阶案例</button>
-      <span class="small">最多 2000 字，长段落会分段识别；字符位置从 0 开始 · <span id="count">0/2000</span></span>
-    </div>
+    <div class="section-head"><span class="step" aria-hidden="true">1</span><h2>选择示例或输入文本</h2></div>
+    <div class="example-bar"><div class="example-field"><label class="field-label" for="exampleSelect">演示示例（选择后自动载入）</label><select id="exampleSelect"></select></div><button class="secondary" id="advanced" type="button">载入多段进阶案例</button></div>
+    <label class="field-label" for="input">待识别文本</label>
+    <textarea id="input" maxlength="2000" spellcheck="false">张三在北京大学学习，后来去了上海。</textarea>
+    <div class="input-meta"><span>最多 2000 字；长段落自动分段。按 Ctrl + Enter 也可开始识别。</span><span id="count">0/2000</span></div>
+    <div class="controls"><button class="primary" id="run" type="button">开始识别 →</button><button class="secondary" id="clear" type="button">清空文本</button></div>
     <p id="status" role="status"></p>
-    <p class="small">进阶演示顺序：加载案例 → 开始识别 → 查看高亮和分类统计 → 导出结果。</p>
   </section>
   <section class="card" id="result" hidden>
-    <h2>识别结果</h2>
+    <div class="section-head"><span class="step" aria-hidden="true">2</span><h2>识别结果</h2></div>
     <div class="legend"><span><i class="dot person"></i>人名</span><span><i class="dot org"></i>机构名</span><span><i class="dot place"></i>地名</span></div>
     <div class="statline" id="entityStats" aria-label="实体类别统计"></div>
-    <div class="sentence" id="highlight"></div>
+    <div class="result-label">原文高亮</div><div class="sentence" id="highlight"></div>
+    <div class="result-label">实体明细（位置从 0 开始，结束位置不包含该字符）</div>
     <div class="scroll"><table><thead><tr><th>实体</th><th>类别</th><th>起始位置</th><th>结束位置</th></tr></thead><tbody id="rows"></tbody></table></div>
-    <div class="controls"><button class="secondary" id="export">导出识别结果 JSON</button></div>
+    <div class="controls"><button class="secondary" id="copy" type="button">复制 JSON</button><button class="secondary" id="export" type="button">下载 JSON</button></div>
   </section>
   <footer>进阶案例是用于演示的虚构文本，模型输出可能有误，请人工核对。本网页展示本机训练的子集模型；测试分数不代表完整 MSRA 数据集或论文报告分数。训练设置和评估结果见仓库 README。</footer>
 </main>
@@ -80,13 +84,16 @@ const advancedText=`李华从北京大学毕业后加入中国科学院，在北
 随后，王明代表中国科学院前往浙江大学参加研讨会，与来自南京大学的赵敏讨论研究方案。会议结束后，团队返回北京，计划继续访问上海。
 第二周，赵敏和李华在上海交通大学整理资料，并向中国科学院提交阶段报告。王明则前往杭州，与浙江大学的同事继续研究。`;
 const count=document.querySelector('#count');
-const entityStats=document.querySelector('#entityStats'),exportButton=document.querySelector('#export');
-let lastResult=null;
+const entityStats=document.querySelector('#entityStats'),exportButton=document.querySelector('#export'),copyButton=document.querySelector('#copy');
+let lastResult=null,requestId=0;
 function updateCount(){count.textContent=`${[...input.value].length}/2000`;}
-function loadText(text,message=''){input.value=text;updateCount();result.hidden=true;lastResult=null;exportButton.disabled=true;status.className='';status.textContent=message;}
-input.addEventListener('input',()=>{updateCount();lastResult=null;exportButton.disabled=true;result.hidden=true;});updateCount();
-document.querySelector('#sample').onclick=()=>{const example=examples[Number(exampleSelect.value)];loadText(example.text,`已载入“${example.name}”，点击“开始识别”。`);};
+function clearResult(){requestId++;result.hidden=true;lastResult=null;exportButton.disabled=true;copyButton.disabled=true;}
+function loadText(text,message=''){input.value=text;updateCount();clearResult();status.className='';status.textContent=message;}
+input.addEventListener('input',()=>{updateCount();clearResult();status.textContent='';});updateCount();
+exampleSelect.addEventListener('change',()=>{const example=examples[Number(exampleSelect.value)];loadText(example.text,`已载入“${example.name}”，点击“开始识别”。`);});
 document.querySelector('#advanced').onclick=()=>loadText(advancedText,'已载入多段进阶案例，点击“开始识别”。');
+document.querySelector('#clear').onclick=()=>{loadText('','已清空，请输入中文或选择示例。');input.focus();};
+input.addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();run.click();}});
 function draw(data){
   result.hidden=false;highlight.replaceChildren();rows.replaceChildren();entityStats.replaceChildren();let position=0;
   const counts={人名:0,机构名:0,地名:0};
@@ -103,21 +110,34 @@ function draw(data){
   highlight.append(document.createTextNode(data.text.slice(position)));
   if(!data.entities.length){const tr=document.createElement('tr');const td=document.createElement('td');td.colSpan=4;td.textContent='未识别到实体';tr.append(td);rows.append(tr);}
   for(const [label,value] of Object.entries(counts)){const span=document.createElement('span');span.className='stat';span.textContent=`${label} ${value}`;entityStats.append(span);}
-  lastResult=data;exportButton.disabled=false;
+  lastResult=data;exportButton.disabled=false;copyButton.disabled=false;
   result.scrollIntoView({behavior:'smooth',block:'start'});
 }
+copyButton.disabled=true;exportButton.disabled=true;
+copyButton.onclick=async()=>{
+  if(!lastResult)return;
+  const value=JSON.stringify(lastResult,null,2);
+  try{
+    if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(value);}
+    else{const temporary=document.createElement('textarea');temporary.value=value;temporary.style.position='fixed';temporary.style.opacity='0';document.body.append(temporary);temporary.select();const copied=document.execCommand('copy');temporary.remove();if(!copied)throw Error('浏览器未允许复制');}
+    copyButton.textContent='已复制 ✓';setTimeout(()=>copyButton.textContent='复制 JSON',2000);
+  }catch(error){status.className='error';status.textContent=`复制失败：${error.message}。可使用“下载 JSON”。`;}
+};
 exportButton.onclick=()=>{
   if(!lastResult)return;
   const blob=new Blob([JSON.stringify(lastResult,null,2)],{type:'application/json;charset=utf-8'});
   const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='ner-result.json';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
 };
 run.onclick=async()=>{
-  run.disabled=true;result.hidden=true;lastResult=null;exportButton.disabled=true;status.className='';status.textContent='正在识别…';
+  if(!input.value.trim()){status.className='error';status.textContent='请先输入中文或选择一个示例。';input.focus();return;}
+  const text=input.value;clearResult();const currentRequest=requestId;
+  run.disabled=true;status.className='';status.textContent='正在识别…';
   try{
-    const response=await fetch('/api/ner',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:input.value})});
+    const response=await fetch('/api/ner',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
     const data=await response.json();if(!response.ok)throw Error(data.error||'请求失败');
+    if(currentRequest!==requestId)return;
     draw(data);status.textContent=`识别完成：${data.entities.length} 个实体。`;
-  }catch(error){status.className='error';status.textContent=error.message;}finally{run.disabled=false;}
+  }catch(error){if(currentRequest===requestId){status.className='error';status.textContent=error.message;}}finally{run.disabled=false;}
 };
 fetch('/api/summary').then(r=>r.json()).then(data=>{
   const stats=document.querySelector('#stats');stats.replaceChildren();
