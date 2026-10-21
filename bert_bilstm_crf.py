@@ -92,6 +92,11 @@ def collate(batch: list[dict], pad_id: int) -> dict:
             "labels": labels, "mask": mask, "texts": [r["text"] for r in batch]}
 
 
+def on_device(batch: dict, device: torch.device) -> dict:
+    return {key: value.to(device) if isinstance(value, torch.Tensor) else value
+            for key, value in batch.items()}
+
+
 class LinearCRF(nn.Module):
     def __init__(self, num_tags: int):
         super().__init__()
@@ -179,7 +184,8 @@ def evaluate(model: BertBiLstmCrf, loader: DataLoader) -> dict:
     tp = fp = fn = 0
     details = {name: [0, 0, 0] for name in LABEL_ZH}
     for batch in loader:
-        decoded = model.crf.decode(model.emissions(batch), batch["mask"])
+        decoded = model.crf.decode(model.emissions(on_device(batch, next(model.parameters()).device)),
+                                   batch["mask"].to(next(model.parameters()).device))
         for text, pred_ids, gold_ids, mask in zip(batch["texts"], decoded,
                                                   batch["labels"], batch["mask"]):
             gold_tags = [TAGS[int(x)] for x in gold_ids[:int(mask.sum())]]
@@ -208,15 +214,20 @@ def train(args) -> None:
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     torch.set_num_threads(args.threads)
+    device = torch.device("cuda" if args.device == "auto" and torch.cuda.is_available()
+                          else "cpu" if args.device == "auto" else args.device)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA requested but not available")
+    print(f"training device: {device}", flush=True)
     train_file = ensure_file("train.tsv")
     test_file = ensure_file("test.tsv")
     ensure_model()
     train_pool = read_msra(train_file, args.max_chars)
     test_pool = read_msra(test_file, args.max_chars)
     excluded = set()
-    if args.exclude_test_lines:
-        previous = json.loads(args.exclude_test_lines.read_text(encoding="utf-8"))
-        excluded = set(previous["test_lines"])
+    for path in args.exclude_test_lines:
+        previous = json.loads(path.read_text(encoding="utf-8"))
+        excluded.update(previous["test_lines"])
     training, development, testing = sample_splits(
         train_pool, test_pool, args.train_size, args.dev_size, args.test_size,
         args.seed, excluded)
@@ -231,7 +242,7 @@ def train(args) -> None:
     train_loader = make_loader(train_rows, True)
     dev_loader = make_loader(dev_rows)
     test_loader = make_loader(test_rows)
-    model = BertBiLstmCrf(MODEL_DIR, hidden=args.hidden)
+    model = BertBiLstmCrf(MODEL_DIR, hidden=args.hidden).to(device)
     if args.freeze_bert:
         for parameter in model.bert.parameters():
             parameter.requires_grad = False
@@ -240,13 +251,14 @@ def train(args) -> None:
         {"params": list(model.lstm.parameters()) + list(model.classifier.parameters()) +
          list(model.crf.parameters()), "lr": args.head_lr},
     ], weight_decay=0.01)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
     best_f1 = -1.0
     history = []
     for epoch in range(1, args.epochs + 1):
         model.train()
         losses = []
         for step, batch in enumerate(train_loader, 1):
+            batch = on_device(batch, device)
             optimizer.zero_grad()
             loss = model.crf.loss(model.emissions(batch), batch["labels"], batch["mask"])
             loss.backward()
@@ -261,12 +273,13 @@ def train(args) -> None:
         print(f"epoch {epoch} dev entity F1={f1:.3%}", flush=True)
         if f1 > best_f1:
             best_f1 = f1
-            torch.save(model.state_dict(), OUTPUT_DIR / "best.pt")
-    model.load_state_dict(torch.load(OUTPUT_DIR / "best.pt", map_location="cpu", weights_only=True))
+            torch.save({key: value.cpu() for key, value in model.state_dict().items()},
+                       args.output_dir / "best.pt")
+    model.load_state_dict(torch.load(args.output_dir / "best.pt", map_location=device, weights_only=True))
     test = evaluate(model, test_loader)
     metadata = {"architecture": "Chinese BERT -> BiLSTM -> linear -> CRF",
                 "pretrained": MODEL_ID, "pretrained_revision": REVISION,
-                "freeze_bert": args.freeze_bert,
+                "freeze_bert": args.freeze_bert, "device": str(device),
                 "seed": args.seed, "train_size": len(training), "dev_size": len(development),
                 "test_size": len(testing), "max_chars": args.max_chars,
                 "batch_size": args.batch_size, "epochs": args.epochs,
@@ -277,7 +290,7 @@ def train(args) -> None:
                 "test_lines": [r["line"] for r in testing],
                 "excluded_prior_test_lines": sorted(excluded),
                 "history": history, "test": test}
-    (OUTPUT_DIR / "run.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    (args.output_dir / "run.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
     report = ["# MSRA BERT-BiLSTM-CRF 小规模复现实验", "",
               "模型：UER 中文 RoBERTa-Tiny（BERT 结构，2 层、隐层 128）→ 双向 LSTM → 线性层 → CRF。",
               "数据：PaddleNLP 提供的 MSRA NER；仅从 train.tsv 划出训练集和开发集，test.tsv 只在模型选择完成后评估一次。",
@@ -290,20 +303,20 @@ def train(args) -> None:
         report.append(f"| {name} | {values['correct']} | {values['false_positive']} | {values['missed']} | {values['precision']:.1%} | {values['recall']:.1%} | {values['f1']:.1%} |")
     report += ["", "## 各轮开发集", ""]
     report += [f"- Epoch {row['epoch']}：loss {row['train_loss']:.4f}，F1 {row['dev']['overall']['f1']:.1%}" for row in history]
-    report += ["", "运行配置和抽样行号保存在 `.cache/bert_bilstm_crf/run.json`。", ""]
-    (ROOT / "bert_bilstm_crf_report.md").write_text("\n".join(report), encoding="utf-8")
+    report += ["", f"运行配置和抽样行号保存在 `{args.output_dir / 'run.json'}`。", ""]
+    args.report.write_text("\n".join(report), encoding="utf-8")
     print("TEST", json.dumps(test["overall"], ensure_ascii=False), flush=True)
 
 
 def predict(args) -> None:
     torch.set_num_threads(args.threads)
-    if not (OUTPUT_DIR / "best.pt").exists():
+    if not (args.output_dir / "best.pt").exists():
         raise FileNotFoundError("run the train command first")
-    metadata = json.loads((OUTPUT_DIR / "run.json").read_text(encoding="utf-8"))
+    metadata = json.loads((args.output_dir / "run.json").read_text(encoding="utf-8"))
     ensure_model()
     tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR, use_fast=True)
     model = BertBiLstmCrf(MODEL_DIR, hidden=metadata["hidden"])
-    model.load_state_dict(torch.load(OUTPUT_DIR / "best.pt", map_location="cpu", weights_only=True))
+    model.load_state_dict(torch.load(args.output_dir / "best.pt", map_location="cpu", weights_only=True))
     model.eval()
     row = encode({"text": args.text}, tokenizer, metadata["max_chars"])
     batch = collate([row], tokenizer.pad_token_id)
@@ -328,8 +341,11 @@ def main() -> None:
     parser.add_argument("--bert-lr", type=float, default=3e-5)
     parser.add_argument("--head-lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=2026)
-    parser.add_argument("--exclude-test-lines", type=Path,
+    parser.add_argument("--exclude-test-lines", type=Path, action="append", default=[],
                         help="JSON run file whose earlier test lines must be excluded")
+    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    parser.add_argument("--report", type=Path, default=ROOT / "bert_bilstm_crf_report.md")
+    parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--freeze-bert", action="store_true", help="faster CPU teaching run")
     args = parser.parse_args()

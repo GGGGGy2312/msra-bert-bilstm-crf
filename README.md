@@ -29,13 +29,15 @@ py -3.11 -m venv .venv
 
 ## 已完成的本机实验
 
-在 8192/1024/500 句训练/开发/测试抽样、6 轮训练下，本机测试集实体级 Precision **82.6%**、Recall **79.2%**、F1 **80.9%**。这只是小样本学习实验，不能作为完整 MSRA 数据集的论文复现成绩。详细类别结果和训练曲线见 [实验报告](bert_bilstm_crf_report.md)。演示输入“张三在北京大学学习，后来去了上海。”时，模型识别出张三（人名）、北京大学（机构名）、上海（地名）。
+当前 demo 使用 40000/1024/500 句训练/开发/测试抽样、5 轮训练得到的模型。本机测试集实体级 Precision **87.9%**、Recall **87.9%**、F1 **87.9%**。这不是完整 MSRA 数据集的论文复现成绩：句长限制为 96 字，测试集是独立抽取的 500 句。详细类别结果和训练曲线见 [实验报告](bert_bilstm_crf_report.md)。演示输入“张三在北京大学学习，后来去了上海。”时，模型识别出张三（人名）、北京大学（机构名）、上海（地名）。
 
-先做过一次 2048 句训练的探索实验；正式实验的 500 句测试样本排除了那次已看过的测试行。两次实验的配置、抽样行号及逐类指标保存在 `experiments/pilot_run.json` 和 `experiments/final_run.json`，模型权重不上传。重新训练最终实验可用：
+此前分别训练过 2048 句和 8192 句模型；新测试集排除了这两次已使用的测试行。在**同一批新测试句子**上，8192 句模型 F1 为 **81.0%**，40000 句模型为 **87.9%**；机构名 F1 从 **74.8%** 提高到 **85.9%**。这是一次同集对照，不能当作对所有文本都提高 6.9 个百分点的保证。三次实验的配置、抽样行号及逐类指标在 `experiments/`；模型权重不上传。重新训练当前模型可用：
 
 ```powershell
-.\.venv\Scripts\python.exe bert_bilstm_crf.py train --train-size 8192 --dev-size 1024 --test-size 500 --epochs 6 --seed 2027 --exclude-test-lines experiments\pilot_run.json
+.\.venv\Scripts\python.exe bert_bilstm_crf.py train --train-size 40000 --dev-size 1024 --test-size 500 --epochs 5 --batch-size 16 --threads 8 --seed 2028 --exclude-test-lines experiments\pilot_run.json --exclude-test-lines experiments\final_run.json
 ```
+
+`--device auto` 默认优先使用可用的 CUDA，否则使用 CPU。此次本机运行使用 CPU。
 
 ## 评估规则
 
@@ -50,7 +52,8 @@ py -3.11 -m venv .venv
 - `bert_bilstm_crf.py`：字符与 token 对齐、模型、训练、评估和预测。
 - `demo_server.py`、`demo.html`：本地网页演示。
 - `test_bert_bilstm_crf.py`：CRF 精确性和数据划分测试。
-- `experiments/`：已完成两次实验的配置、抽样行号及结果，方便核对和复现。
+- `compare_checkpoints.py`：在同一测试抽样上比较两个已冻结的 checkpoint。
+- `experiments/`：三次实验的配置、抽样行号及同集对照结果，方便核对和复现。
 
 运行测试：
 
