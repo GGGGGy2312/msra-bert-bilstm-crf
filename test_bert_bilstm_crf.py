@@ -7,9 +7,18 @@ import unittest
 import torch
 
 from bert_bilstm_crf import LinearCRF, entities, sample_splits
+from demo_server import segment_text
 
 
 class CrfTests(unittest.TestCase):
+    def test_long_text_segments_keep_original_offsets(self):
+        text = "张三在北京大学。\n李华 加入中国科学院，后来去了上海。" + "北京大学" * 30
+        parts = segment_text(text, 24)
+        self.assertTrue(all(0 < len(part) <= 24 for _, part in parts))
+        self.assertEqual("".join(part for _, part in parts), "".join(text.split()))
+        self.assertTrue(all(text[offset:offset + len(part)] == part for offset, part in parts))
+        self.assertTrue(any(offset > text.index("上海") for offset, _ in parts))
+
     def test_partition_and_decode_match_brute_force(self):
         torch.manual_seed(17)
         crf = LinearCRF(3)

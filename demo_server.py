@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,6 +20,30 @@ from download_model import ensure_model
 ROOT = Path(__file__).resolve().parent
 LOCK = threading.Lock()
 COMPONENTS = None
+MAX_INPUT_CHARS = 2000
+
+
+def segment_text(text: str, max_chars: int) -> list[tuple[int, str]]:
+    """Split non-whitespace runs while retaining offsets in the original text."""
+    chunks = []
+    for match in re.finditer(r"\S+", text):
+        run = match.group()
+        offset = match.start()
+        while run:
+            end = min(len(run), max_chars)
+            if end < len(run):
+                # Prefer sentence endings; use commas only when no ending is nearby.
+                lower = max(1, end // 2)
+                for marks in ("。！？!?；;", "，,、"):
+                    cuts = [i + 1 for i, char in enumerate(run[:end])
+                            if char in marks and i + 1 >= lower]
+                    if cuts:
+                        end = cuts[-1]
+                        break
+            chunks.append((offset, run[:end]))
+            offset += end
+            run = run[end:]
+    return chunks
 
 
 def predict_rows(text: str) -> list[dict]:
@@ -37,16 +62,24 @@ def predict_rows(text: str) -> list[dict]:
             model.eval()
             COMPONENTS = model, tokenizer, metadata
         model, tokenizer, metadata = COMPONENTS
-        if len(text) > metadata["max_chars"]:
-            raise ValueError(f"最多输入 {metadata['max_chars']} 字")
-        batch = collate([encode({"text": text}, tokenizer, metadata["max_chars"])],
-                        tokenizer.pad_token_id)
+        if len(text) > MAX_INPUT_CHARS:
+            raise ValueError(f"最多输入 {MAX_INPUT_CHARS} 字")
+        if not text.strip():
+            raise ValueError("请输入中文文本")
+        segments = segment_text(text, metadata["max_chars"])
+        rows = []
         with torch.no_grad():
-            path = model.crf.decode(model.emissions(batch), batch["mask"])[0]
-        return [{"text": text[start:end], "label": LABEL_ZH[kind],
-                 "start": start, "end": end}
-                for kind, start, end in sorted(entities(text, [TAGS[i] for i in path]),
-                                               key=lambda item: item[1])]
+            for i in range(0, len(segments), 8):
+                group = segments[i:i + 8]
+                batch = collate([encode({"text": part}, tokenizer, metadata["max_chars"])
+                                 for _, part in group], tokenizer.pad_token_id)
+                paths = model.crf.decode(model.emissions(batch), batch["mask"])
+                for (offset, part), path in zip(group, paths):
+                    for kind, start, end in entities(part, [TAGS[tag] for tag in path]):
+                        rows.append({"text": text[offset + start:offset + end],
+                                     "label": LABEL_ZH[kind], "start": offset + start,
+                                     "end": offset + end})
+        return sorted(rows, key=lambda row: row["start"])
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -74,7 +107,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             size = int(self.headers.get("Content-Length", "0"))
-            if not 1 <= size <= 2048:
+            if not 1 <= size <= 32000:
                 raise ValueError("请求过长或为空")
             payload = json.loads(self.rfile.read(size))
             text = payload.get("text", "")

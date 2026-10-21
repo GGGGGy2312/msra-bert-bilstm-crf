@@ -18,7 +18,7 @@
     .small{font-size:13px;color:#63728d} #status{min-height:23px;margin-top:12px} #status.error{color:#b42318}
     .statline{display:flex;gap:10px;flex-wrap:wrap} .stat{background:#eef4ff;color:#27518d;border-radius:100px;padding:5px 12px;font-size:14px}
     .legend{display:flex;gap:15px;color:#63728d;font-size:14px;margin:10px 0 16px}.dot{width:12px;height:12px;display:inline-block;border-radius:3px;margin-right:5px}
-    .sentence{font-size:22px;line-height:2.25;overflow-wrap:anywhere;border:1px solid #e2e9f3;border-radius:12px;padding:14px 16px}
+    .sentence{font-size:22px;line-height:2.25;white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid #e2e9f3;border-radius:12px;padding:14px 16px}
     mark{border-radius:5px;padding:2px 3px;color:#19233b}.person{background:#ffe0d7}.org{background:#d9e8ff}.place{background:#d9f2df}
     table{width:100%;border-collapse:collapse;margin-top:17px} th,td{text-align:left;padding:9px;border-bottom:1px solid #e1e8f1} th{color:#63728d;font-weight:600}
     .scroll{overflow:auto} footer{font-size:13px;color:#63728d;margin-top:18px}
@@ -34,11 +34,11 @@
   </header>
   <section class="card">
     <h2>输入一段中文</h2>
-    <textarea id="input" aria-label="待识别文本">张三在北京大学学习，后来去了上海。</textarea>
+    <textarea id="input" aria-label="待识别文本" maxlength="2000">张三在北京大学学习，后来去了上海。</textarea>
     <div class="controls">
       <button id="run">开始识别</button>
       <button class="secondary" id="sample">换一条示例</button>
-      <span class="small">最多 96 字；字符位置从 0 开始</span>
+      <span class="small">最多 2000 字，长段落会分段识别；字符位置从 0 开始 · <span id="count">0/2000</span></span>
     </div>
     <p id="status" role="status"></p>
   </section>
@@ -55,8 +55,11 @@ const input=document.querySelector('#input'),run=document.querySelector('#run'),
 const result=document.querySelector('#result'),highlight=document.querySelector('#highlight'),rows=document.querySelector('#rows');
 const classes={人名:'person',机构名:'org',地名:'place'};
 let sampleIndex=0;
-const examples=['张三在北京大学学习，后来去了上海。','李华加入中国科学院，今天来到北京参加会议。','赵敏毕业于浙江大学，现在住在杭州。'];
-document.querySelector('#sample').onclick=()=>{sampleIndex=(sampleIndex+1)%examples.length;input.value=examples[sampleIndex];result.hidden=true;status.textContent='';};
+const examples=['张三在北京大学学习，后来去了上海。','李华加入中国科学院，今天来到北京参加会议。','赵敏毕业于浙江大学，现在住在杭州。','张三在北京大学学习，后来去了上海。\n李华加入中国科学院，今天来到北京参加会议。赵敏毕业于浙江大学，现在住在杭州。'];
+const count=document.querySelector('#count');
+function updateCount(){count.textContent=`${[...input.value].length}/2000`;}
+input.addEventListener('input',updateCount);updateCount();
+document.querySelector('#sample').onclick=()=>{sampleIndex=(sampleIndex+1)%examples.length;input.value=examples[sampleIndex];updateCount();result.hidden=true;status.textContent='';};
 function draw(data){
   result.hidden=false;highlight.replaceChildren();rows.replaceChildren();let position=0;
   for(const entity of data.entities){
