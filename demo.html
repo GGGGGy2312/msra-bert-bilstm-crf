@@ -86,7 +86,7 @@ run.onclick=async()=>{
 fetch('/api/summary').then(r=>r.json()).then(data=>{
   const stats=document.querySelector('#stats');stats.replaceChildren();
   const modelName=data.model==='mini'?'UER Mini（4 层）':'UER Tiny（2 层）';
-  const labels=data.trained?[modelName,`训练 ${data.train_size} 句`,`开发 ${data.dev_size} 句`,`测试 ${data.test_size} 句`,`实体级 F1 ${(data.f1*100).toFixed(1)}%`] : ['模型尚未训练'];
+  const labels=data.trained?[modelName,`训练 ${data.train_size} 句`,`开发 ${data.dev_size} 句`,`测试 ${data.test_size} 句`,`新测试集 F1 ${(data.f1*100).toFixed(1)}%`,...(data.matched_baseline_f1==null?[]:[`旧模型同集 ${(data.matched_baseline_f1*100).toFixed(1)}%`])] : ['模型尚未训练'];
   for(const label of labels){const span=document.createElement('span');span.className='stat';span.textContent=label;stats.append(span);}
 }).catch(()=>{});
 </script></body></html>

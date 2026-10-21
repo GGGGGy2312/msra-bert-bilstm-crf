@@ -97,7 +97,8 @@ class Handler(BaseHTTPRequestHandler):
                                  "model": run.get("model_key", "tiny"),
                                  "train_size": run["train_size"],
                                  "dev_size": run["dev_size"], "test_size": run["test_size"],
-                                 "f1": run["test"]["overall"]["f1"]})
+                                 "f1": run["test"]["overall"]["f1"],
+                                 "matched_baseline_f1": run.get("matched_baseline_f1")})
         else:
             self.send_error(404)
 

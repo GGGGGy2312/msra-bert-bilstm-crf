@@ -31,15 +31,16 @@ py -3.11 -m venv .venv
 
 ## 已完成的本机实验
 
-当前 demo 使用 UER Mini，在 40000/1024/500 句训练/开发/测试抽样、5 轮训练后，本机测试集实体级 Precision **92.1%**、Recall **90.1%**、F1 **91.1%**。这不是完整 MSRA 数据集的论文复现成绩：句长限制为 96 字，测试集是独立抽取的 500 句。详细类别结果和训练曲线见 [实验报告](bert_bilstm_crf_report.md)。演示输入“张三在北京大学学习，后来去了上海。”时，模型识别出张三（人名）、北京大学（机构名）、上海（地名）。
+当前 demo 使用 UER Mini：先在 40000 条训练句和 1024 条开发句上训练 5 轮，再从该权重以较低学习率继续训练 1 轮。新检查点的开发集 F1 为 **93.68%**，高于原检查点的 **93.43%**；再尝试 1 轮后降至 93.29%，因此保留前一轮。在同一批**此前未用过**的 500 条测试句上，原检查点 F1 **89.55%**，当前 Demo 权重 F1 **90.42%**，提高 **0.87 个百分点**。详细计数、逐类结果和训练记录见 [实验报告](bert_bilstm_crf_report.md)。继续训练只加载模型权重，优化器会重新初始化。演示输入“张三在北京大学学习，后来去了上海。”时，模型识别出张三（人名）、北京大学（机构名）、上海（地名）。
 
-此前分别训练过 2048 句、8192 句和 40000 句 Tiny 模型；Mini 实验的测试行排除了这三次已使用的测试行。在**同一批新测试句子**上，40000 句 Tiny 的 F1 为 **86.8%**，40000 句 Mini 为 **91.1%**；机构名 F1 从 **81.9%** 提高到 **87.8%**。这是一次同集对照，不能当作对所有文本都提高 4.3 个百分点的保证。各实验的配置、抽样行号及逐类指标在 `experiments/`；模型权重不上传。重新训练当前模型可用：
+此前分别训练过 2048 句、8192 句和 40000 句 Tiny 模型；原 5 轮 Mini 的测试行排除了这三次已使用的测试行。在**当时同一批测试句**上，40000 句 Tiny 的 F1 为 **86.8%**，原 Mini 为 **91.1%**。本次新测试集又排除了原 Mini 已使用的测试行。**91.1% 与 90.42% 来自两批不同测试句，不能直接比较。**各实验的配置、抽样行号及逐类指标在 `experiments/`；模型权重不上传。重新训练原模型，再继续训练 1 轮可用：
 
 ```powershell
 .\.venv\Scripts\python.exe bert_bilstm_crf.py train --model mini --train-size 40000 --dev-size 1024 --test-size 500 --epochs 5 --batch-size 16 --threads 8 --seed 2029 --exclude-test-lines experiments\pilot_run.json --exclude-test-lines experiments\final_run.json --exclude-test-lines experiments\large_run.json
+.\.venv\Scripts\python.exe bert_bilstm_crf.py train --model mini --train-size 40000 --dev-size 1024 --test-size 500 --epochs 1 --batch-size 16 --threads 8 --seed 2029 --bert-lr 0.00001 --head-lr 0.0003 --init-checkpoint .cache\bert_bilstm_crf\best.pt --output-dir .cache\mini_resume --report .cache\mini_resume_report.md --exclude-test-lines experiments\pilot_run.json --exclude-test-lines experiments\final_run.json --exclude-test-lines experiments\large_run.json --exclude-test-lines experiments\mini_run.json
 ```
 
-`--device auto` 默认优先使用可用的 CUDA，否则使用 CPU。此次本机运行使用 CPU。
+继续训练时必须保持训练和开发样本行号相同；`--init-checkpoint` 会校验这些行号，训练中每轮写入 `progress.json`，中断后可用 `--init-run` 指向该文件恢复权重。以上命令把候选权重保存在单独目录，评估后再决定是否切换 Demo。`--device auto` 默认优先使用可用的 CUDA，否则使用 CPU。此次本机运行使用 CPU。
 
 ## 评估规则
 
@@ -55,7 +56,7 @@ py -3.11 -m venv .venv
 - `demo_server.py`、`demo.html`：本地网页演示。
 - `test_bert_bilstm_crf.py`：CRF 精确性和数据划分测试。
 - `compare_checkpoints.py`：在同一测试抽样上比较两个已冻结的 checkpoint。
-- `experiments/`：四次实验的配置、抽样行号、同集对照结果及本机软件版本，方便核对和复现。
+- `experiments/`：各次实验的配置、抽样行号、同集对照结果及本机软件版本，方便核对和复现。
 
 运行测试：
 

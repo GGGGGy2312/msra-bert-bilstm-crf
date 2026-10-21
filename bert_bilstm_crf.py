@@ -211,6 +211,8 @@ def evaluate(model: BertBiLstmCrf, loader: DataLoader) -> dict:
 
 
 def train(args) -> None:
+    if args.init_checkpoint and args.output_dir.resolve() == args.init_checkpoint.parent.resolve():
+        raise ValueError("continued training needs a separate output directory")
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     torch.set_num_threads(args.threads)
@@ -244,6 +246,22 @@ def train(args) -> None:
     dev_loader = make_loader(dev_rows)
     test_loader = make_loader(test_rows)
     model = BertBiLstmCrf(model_dir, hidden=args.hidden).to(device)
+    history = []
+    if args.init_checkpoint is not None:
+        previous_file = args.init_run or args.init_checkpoint.parent / "run.json"
+        previous = json.loads(previous_file.read_text(encoding="utf-8"))
+        for key, expected in (("model_key", args.model), ("hidden", args.hidden),
+                              ("max_chars", args.max_chars)):
+            if previous.get(key) != expected:
+                raise ValueError(f"initial checkpoint has incompatible {key}")
+        if previous["train_lines"] != [r["line"] for r in training] or \
+                previous["dev_lines"] != [r["line"] for r in development]:
+            raise ValueError("continued training requires the same train and dev rows")
+        model.load_state_dict(torch.load(args.init_checkpoint, map_location=device,
+                                         weights_only=True))
+        initial_dev = evaluate(model, dev_loader)
+        history.append({"epoch": 0, "train_loss": None, "dev": initial_dev})
+        print(f"initial dev entity F1={initial_dev['overall']['f1']:.3%}", flush=True)
     if args.freeze_bert:
         for parameter in model.bert.parameters():
             parameter.requires_grad = False
@@ -253,8 +271,22 @@ def train(args) -> None:
          list(model.crf.parameters()), "lr": args.head_lr},
     ], weight_decay=0.01)
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    best_f1 = -1.0
-    history = []
+    def save_progress() -> None:
+        progress = {"status": "in_progress", "model_key": args.model,
+                    "hidden": args.hidden, "max_chars": args.max_chars,
+                    "train_lines": [r["line"] for r in training],
+                    "dev_lines": [r["line"] for r in development],
+                    "test_lines": [r["line"] for r in testing],
+                    "history": history, "best_dev_f1": best_f1}
+        target = args.output_dir / "progress.json"
+        temporary = target.with_suffix(".tmp")
+        temporary.write_text(json.dumps(progress, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(target)
+    best_f1 = history[0]["dev"]["overall"]["f1"] if history else -1.0
+    if history:
+        torch.save({key: value.cpu() for key, value in model.state_dict().items()},
+                   args.output_dir / "best.pt")
+    save_progress()
     for epoch in range(1, args.epochs + 1):
         model.train()
         losses = []
@@ -276,6 +308,7 @@ def train(args) -> None:
             best_f1 = f1
             torch.save({key: value.cpu() for key, value in model.state_dict().items()},
                        args.output_dir / "best.pt")
+        save_progress()
     model.load_state_dict(torch.load(args.output_dir / "best.pt", map_location=device, weights_only=True))
     test = evaluate(model, test_loader)
     metadata = {"architecture": "Chinese BERT -> BiLSTM -> linear -> CRF",
@@ -286,6 +319,7 @@ def train(args) -> None:
                 "test_size": len(testing), "max_chars": args.max_chars,
                 "batch_size": args.batch_size, "epochs": args.epochs,
                 "hidden": args.hidden, "bert_lr": args.bert_lr, "head_lr": args.head_lr,
+                "init_checkpoint": str(args.init_checkpoint) if args.init_checkpoint else None,
                 "train_md5": md5(train_file), "test_md5": md5(test_file),
                 "train_lines": [r["line"] for r in training],
                 "dev_lines": [r["line"] for r in development],
@@ -304,7 +338,9 @@ def train(args) -> None:
     for name, values in [("总体", test["overall"])] + [(LABEL_ZH[k], v) for k, v in test["per_class"].items()]:
         report.append(f"| {name} | {values['correct']} | {values['false_positive']} | {values['missed']} | {values['precision']:.1%} | {values['recall']:.1%} | {values['f1']:.1%} |")
     report += ["", "## 各轮开发集", ""]
-    report += [f"- Epoch {row['epoch']}：loss {row['train_loss']:.4f}，F1 {row['dev']['overall']['f1']:.1%}" for row in history]
+    report += [f"- Epoch {row['epoch']}：" +
+               (f"loss {row['train_loss']:.4f}，" if row['train_loss'] is not None else "继续训练前，") +
+               f"F1 {row['dev']['overall']['f1']:.1%}" for row in history]
     report += ["", f"运行配置和抽样行号保存在 `{args.output_dir / 'run.json'}`。", ""]
     args.report.write_text("\n".join(report), encoding="utf-8")
     print("TEST", json.dumps(test["overall"], ensure_ascii=False), flush=True)
@@ -346,12 +382,18 @@ def main() -> None:
     parser.add_argument("--model", choices=MODELS, default="tiny")
     parser.add_argument("--exclude-test-lines", type=Path, action="append", default=[],
                         help="JSON run file whose earlier test lines must be excluded")
+    parser.add_argument("--init-checkpoint", type=Path,
+                        help="continue training from best.pt, using the same training and dev rows")
+    parser.add_argument("--init-run", type=Path,
+                        help="run.json or progress.json for --init-checkpoint")
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--report", type=Path, default=ROOT / "bert_bilstm_crf_report.md")
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--freeze-bert", action="store_true", help="faster CPU teaching run")
     args = parser.parse_args()
+    if args.init_run and not args.init_checkpoint:
+        parser.error("--init-run requires --init-checkpoint")
     if args.command == "train":
         train(args)
     else:
