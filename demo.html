@@ -17,6 +17,7 @@
     button.secondary{background:#fff;color:#245daa} button:disabled{opacity:.55;cursor:wait}
     .small{font-size:13px;color:#63728d} #status{min-height:23px;margin-top:12px} #status.error{color:#b42318}
     .statline{display:flex;gap:10px;flex-wrap:wrap} .stat{background:#eef4ff;color:#27518d;border-radius:100px;padding:5px 12px;font-size:14px}
+    #entityStats{margin-bottom:14px}
     .legend{display:flex;gap:15px;color:#63728d;font-size:14px;margin:10px 0 16px}.dot{width:12px;height:12px;display:inline-block;border-radius:3px;margin-right:5px}
     .sentence{font-size:22px;line-height:2.25;white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid #e2e9f3;border-radius:12px;padding:14px 16px}
     mark{border-radius:5px;padding:2px 3px;color:#19233b}.person{background:#ffe0d7}.org{background:#d9e8ff}.place{background:#d9f2df}
@@ -38,17 +39,21 @@
     <div class="controls">
       <button id="run">开始识别</button>
       <button class="secondary" id="sample">换一条示例</button>
+      <button class="secondary" id="advanced">加载进阶案例</button>
       <span class="small">最多 2000 字，长段落会分段识别；字符位置从 0 开始 · <span id="count">0/2000</span></span>
     </div>
     <p id="status" role="status"></p>
+    <p class="small">进阶演示顺序：加载案例 → 开始识别 → 查看高亮和分类统计 → 导出结果。</p>
   </section>
   <section class="card" id="result" hidden>
     <h2>识别结果</h2>
     <div class="legend"><span><i class="dot person"></i>人名</span><span><i class="dot org"></i>机构名</span><span><i class="dot place"></i>地名</span></div>
+    <div class="statline" id="entityStats" aria-label="实体类别统计"></div>
     <div class="sentence" id="highlight"></div>
     <div class="scroll"><table><thead><tr><th>实体</th><th>类别</th><th>起始位置</th><th>结束位置</th></tr></thead><tbody id="rows"></tbody></table></div>
+    <div class="controls"><button class="secondary" id="export">导出识别结果 JSON</button></div>
   </section>
-  <footer>本网页展示本机训练的子集模型；测试分数不代表完整 MSRA 数据集或论文报告分数。训练设置和评估结果见仓库 README。</footer>
+  <footer>进阶案例是用于演示的虚构文本，模型输出可能有误，请人工核对。本网页展示本机训练的子集模型；测试分数不代表完整 MSRA 数据集或论文报告分数。训练设置和评估结果见仓库 README。</footer>
 </main>
 <script>
 const input=document.querySelector('#input'),run=document.querySelector('#run'),status=document.querySelector('#status');
@@ -56,27 +61,43 @@ const result=document.querySelector('#result'),highlight=document.querySelector(
 const classes={人名:'person',机构名:'org',地名:'place'};
 let sampleIndex=0;
 const examples=['张三在北京大学学习，后来去了上海。','李华加入中国科学院，今天来到北京参加会议。','赵敏毕业于浙江大学，现在住在杭州。','张三在北京大学学习，后来去了上海。\n李华加入中国科学院，今天来到北京参加会议。赵敏毕业于浙江大学，现在住在杭州。'];
+const advancedText=`李华从北京大学毕业后加入中国科学院，在北京参与人工智能项目。项目组与清华大学、上海交通大学合作，分别在上海和杭州开展交流。
+随后，王明代表中国科学院前往浙江大学参加研讨会，与来自南京大学的赵敏讨论研究方案。会议结束后，团队返回北京，计划继续访问上海。
+第二周，赵敏和李华在上海交通大学整理资料，并向中国科学院提交阶段报告。王明则前往杭州，与浙江大学的同事继续研究。`;
 const count=document.querySelector('#count');
+const entityStats=document.querySelector('#entityStats'),exportButton=document.querySelector('#export');
+let lastResult=null;
 function updateCount(){count.textContent=`${[...input.value].length}/2000`;}
-input.addEventListener('input',updateCount);updateCount();
-document.querySelector('#sample').onclick=()=>{sampleIndex=(sampleIndex+1)%examples.length;input.value=examples[sampleIndex];updateCount();result.hidden=true;status.textContent='';};
+function loadText(text,message=''){input.value=text;updateCount();result.hidden=true;lastResult=null;exportButton.disabled=true;status.className='';status.textContent=message;}
+input.addEventListener('input',()=>{updateCount();lastResult=null;exportButton.disabled=true;result.hidden=true;});updateCount();
+document.querySelector('#sample').onclick=()=>{sampleIndex=(sampleIndex+1)%examples.length;loadText(examples[sampleIndex]);};
+document.querySelector('#advanced').onclick=()=>loadText(advancedText,'已载入多段进阶案例，点击“开始识别”。');
 function draw(data){
-  result.hidden=false;highlight.replaceChildren();rows.replaceChildren();let position=0;
+  result.hidden=false;highlight.replaceChildren();rows.replaceChildren();entityStats.replaceChildren();let position=0;
+  const counts={人名:0,机构名:0,地名:0};
   for(const entity of data.entities){
     if(entity.start<position)continue;
     highlight.append(document.createTextNode(data.text.slice(position,entity.start)));
     const mark=document.createElement('mark');mark.className=classes[entity.label]||'';mark.textContent=entity.text;highlight.append(mark);
     position=entity.end;
+    counts[entity.label]=(counts[entity.label]||0)+1;
     const tr=document.createElement('tr');
     for(const value of [entity.text,entity.label,entity.start,entity.end]){const td=document.createElement('td');td.textContent=value;tr.append(td);}
     rows.append(tr);
   }
   highlight.append(document.createTextNode(data.text.slice(position)));
   if(!data.entities.length){const tr=document.createElement('tr');const td=document.createElement('td');td.colSpan=4;td.textContent='未识别到实体';tr.append(td);rows.append(tr);}
+  for(const [label,value] of Object.entries(counts)){const span=document.createElement('span');span.className='stat';span.textContent=`${label} ${value}`;entityStats.append(span);}
+  lastResult=data;exportButton.disabled=false;
   result.scrollIntoView({behavior:'smooth',block:'start'});
 }
+exportButton.onclick=()=>{
+  if(!lastResult)return;
+  const blob=new Blob([JSON.stringify(lastResult,null,2)],{type:'application/json;charset=utf-8'});
+  const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='ner-result.json';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
 run.onclick=async()=>{
-  run.disabled=true;status.className='';status.textContent='正在识别…';
+  run.disabled=true;result.hidden=true;lastResult=null;exportButton.disabled=true;status.className='';status.textContent='正在识别…';
   try{
     const response=await fetch('/api/ner',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:input.value})});
     const data=await response.json();if(!response.ok)throw Error(data.error||'请求失败');
