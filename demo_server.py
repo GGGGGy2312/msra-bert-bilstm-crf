@@ -11,8 +11,9 @@ from pathlib import Path
 import torch
 from transformers import AutoTokenizer
 
-from bert_bilstm_crf import (BertBiLstmCrf, LABEL_ZH, MODEL_DIR, OUTPUT_DIR,
+from bert_bilstm_crf import (BertBiLstmCrf, LABEL_ZH, OUTPUT_DIR,
                               TAGS, collate, encode, entities)
+from download_model import ensure_model
 
 
 ROOT = Path(__file__).resolve().parent
@@ -29,8 +30,9 @@ def predict_rows(text: str) -> list[dict]:
             if not checkpoint.exists() or not metadata_file.exists():
                 raise ValueError("尚未训练模型，请先运行 python bert_bilstm_crf.py train")
             metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
-            tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR, use_fast=True)
-            model = BertBiLstmCrf(MODEL_DIR, hidden=metadata["hidden"])
+            model_dir = ensure_model(metadata.get("model_key", "tiny"))
+            tokenizer = AutoTokenizer.from_pretrained(model_dir, use_fast=True)
+            model = BertBiLstmCrf(model_dir, hidden=metadata["hidden"])
             model.load_state_dict(torch.load(checkpoint, map_location="cpu", weights_only=True))
             model.eval()
             COMPONENTS = model, tokenizer, metadata
@@ -58,7 +60,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(200, {"trained": False})
                 return
             run = json.loads(path.read_text(encoding="utf-8"))
-            self.send_json(200, {"trained": True, "train_size": run["train_size"],
+            self.send_json(200, {"trained": True,
+                                 "model": run.get("model_key", "tiny"),
+                                 "train_size": run["train_size"],
                                  "dev_size": run["dev_size"], "test_size": run["test_size"],
                                  "f1": run["test"]["overall"]["f1"]})
         else:

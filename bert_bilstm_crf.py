@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 from transformers import AutoModel, AutoTokenizer
 
 from data import ensure_file, md5
-from download_model import MODEL_DIR, MODEL_ID, REVISION, ensure_model
+from download_model import MODELS, ensure_model
 
 
 ROOT = Path(__file__).resolve().parent
@@ -221,7 +221,8 @@ def train(args) -> None:
     print(f"training device: {device}", flush=True)
     train_file = ensure_file("train.tsv")
     test_file = ensure_file("test.tsv")
-    ensure_model()
+    model_dir = ensure_model(args.model)
+    spec = MODELS[args.model]
     train_pool = read_msra(train_file, args.max_chars)
     test_pool = read_msra(test_file, args.max_chars)
     excluded = set()
@@ -231,7 +232,7 @@ def train(args) -> None:
     training, development, testing = sample_splits(
         train_pool, test_pool, args.train_size, args.dev_size, args.test_size,
         args.seed, excluded)
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR, use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_dir, use_fast=True)
     if not tokenizer.is_fast:
         raise ValueError("fast tokenizer is required for word alignment")
     encode_rows = lambda rows: [encode(row, tokenizer, args.max_chars) for row in rows]
@@ -242,7 +243,7 @@ def train(args) -> None:
     train_loader = make_loader(train_rows, True)
     dev_loader = make_loader(dev_rows)
     test_loader = make_loader(test_rows)
-    model = BertBiLstmCrf(MODEL_DIR, hidden=args.hidden).to(device)
+    model = BertBiLstmCrf(model_dir, hidden=args.hidden).to(device)
     if args.freeze_bert:
         for parameter in model.bert.parameters():
             parameter.requires_grad = False
@@ -278,7 +279,8 @@ def train(args) -> None:
     model.load_state_dict(torch.load(args.output_dir / "best.pt", map_location=device, weights_only=True))
     test = evaluate(model, test_loader)
     metadata = {"architecture": "Chinese BERT -> BiLSTM -> linear -> CRF",
-                "pretrained": MODEL_ID, "pretrained_revision": REVISION,
+                "model_key": args.model,
+                "pretrained": spec["id"], "pretrained_revision": spec["revision"],
                 "freeze_bert": args.freeze_bert, "device": str(device),
                 "seed": args.seed, "train_size": len(training), "dev_size": len(development),
                 "test_size": len(testing), "max_chars": args.max_chars,
@@ -291,8 +293,8 @@ def train(args) -> None:
                 "excluded_prior_test_lines": sorted(excluded),
                 "history": history, "test": test}
     (args.output_dir / "run.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-    report = ["# MSRA BERT-BiLSTM-CRF 小规模复现实验", "",
-              "模型：UER 中文 RoBERTa-Tiny（BERT 结构，2 层、隐层 128）→ 双向 LSTM → 线性层 → CRF。",
+    report = ["# MSRA BERT-BiLSTM-CRF 复现实验", "",
+              f"模型：{spec['id']}（BERT 结构，{model.bert.config.num_hidden_layers} 层、隐层 {model.bert.config.hidden_size}）→ 双向 LSTM → 线性层 → CRF。",
               "数据：PaddleNLP 提供的 MSRA NER；仅从 train.tsv 划出训练集和开发集，test.tsv 只在模型选择完成后评估一次。",
               f"训练/开发/测试：{len(training)}/{len(development)}/{len(testing)} 句；长度 ≤ {args.max_chars} 字；种子 {args.seed}。",
               f"epoch={args.epochs}，batch={args.batch_size}，BERT 冻结={args.freeze_bert}。",
@@ -313,9 +315,9 @@ def predict(args) -> None:
     if not (args.output_dir / "best.pt").exists():
         raise FileNotFoundError("run the train command first")
     metadata = json.loads((args.output_dir / "run.json").read_text(encoding="utf-8"))
-    ensure_model()
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR, use_fast=True)
-    model = BertBiLstmCrf(MODEL_DIR, hidden=metadata["hidden"])
+    model_dir = ensure_model(metadata.get("model_key", "tiny"))
+    tokenizer = AutoTokenizer.from_pretrained(model_dir, use_fast=True)
+    model = BertBiLstmCrf(model_dir, hidden=metadata["hidden"])
     model.load_state_dict(torch.load(args.output_dir / "best.pt", map_location="cpu", weights_only=True))
     model.eval()
     row = encode({"text": args.text}, tokenizer, metadata["max_chars"])
@@ -341,6 +343,7 @@ def main() -> None:
     parser.add_argument("--bert-lr", type=float, default=3e-5)
     parser.add_argument("--head-lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=2026)
+    parser.add_argument("--model", choices=MODELS, default="tiny")
     parser.add_argument("--exclude-test-lines", type=Path, action="append", default=[],
                         help="JSON run file whose earlier test lines must be excluded")
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)

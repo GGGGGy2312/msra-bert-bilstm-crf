@@ -1,0 +1,6 @@
+Python 3.11.9
+Platform Windows 10
+PyTorch 2.14.1+cpu
+Transformers 4.57.6
+Hugging Face Hub 0.36.2
+CUDA available False

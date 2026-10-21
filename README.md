@@ -1,40 +1,40 @@
 # MSRA 中文 NER：BERT-BiLSTM-CRF
 
-一个**独立**的中文命名实体识别学习仓库。用公开 MSRA NER 数据微调 UER 中文 BERT 结构轻量模型、双向 LSTM 与线性链 CRF，识别人名、机构名、地名。仓库不依赖 LTP，也不包含数据集或预训练权重。
+一个**独立**的中文命名实体识别学习仓库。用公开 MSRA NER 数据微调 UER 中文 BERT 结构模型、双向 LSTM 与线性链 CRF，识别人名、机构名、地名。仓库不依赖 LTP，也不包含数据集或预训练权重。
 
 ## 模型与数据
 
 ```text
-输入字符 → UER Chinese RoBERTa-Tiny（BERT 结构）→ BiLSTM → 线性层 → CRF → BIO 标签 → 实体跨度
+输入字符 → UER Chinese RoBERTa-Mini（BERT 结构）→ BiLSTM → 线性层 → CRF → BIO 标签 → 实体跨度
 ```
 
-- 预训练模型：[uer/chinese_roberta_L-2_H-128](https://huggingface.co/uer/chinese_roberta_L-2_H-128)，BERT 结构、2 层、隐层 128，固定到 `374ab7ade2513a8ecfeada0348ae8bb59d52ce1c`。它使用 RoBERTa 风格预训练目标，不是标准 12 层 BERT-Base。
+- 当前 demo 的预训练模型：[uer/chinese_roberta_L-4_H-256](https://huggingface.co/uer/chinese_roberta_L-4_H-256)，BERT 结构、4 层、隐层 256，固定到 `68d674689f3c9d425e5436149c8acece077187f1`。此前使用的 [UER Tiny](https://huggingface.co/uer/chinese_roberta_L-2_H-128) 为 2 层、隐层 128，固定到 `374ab7ade2513a8ecfeada0348ae8bb59d52ce1c`。两者使用 RoBERTa 风格预训练目标，不是标准 12 层 BERT-Base。
 - 数据：[PaddleNLP 提供的 MSRA NER](https://github.com/PaddlePaddle/PaddleNLP/blob/develop/paddlenlp/datasets/msra_ner.py)。脚本下载 `train.tsv` 与 `test.tsv` 并校验 MD5；文件仅保存在本机 `.cache/`。
 - 学习参考：[NER-Pytorch-Chinese](https://github.com/xinyi-code/NER-Pytorch-Chinese) 的模型组合。本仓库的训练、CRF 解码和网页代码独立实现。
 
 ## 安装与运行（Windows PowerShell）
 
-安装 Python 3.11 后，在本仓库目录运行：
+安装 Python 3.11 后，在本仓库目录运行。以下 512 句、2 轮命令只用于快速检查流程；要复现下方成绩，请使用完整实验命令。
 
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe download_model.py
-.\.venv\Scripts\python.exe bert_bilstm_crf.py train --train-size 512 --dev-size 128 --test-size 200 --epochs 2
+.\.venv\Scripts\python.exe download_model.py --model mini
+.\.venv\Scripts\python.exe bert_bilstm_crf.py train --model mini --train-size 512 --dev-size 128 --test-size 200 --epochs 2
 .\.venv\Scripts\python.exe bert_bilstm_crf.py predict --text "张三在北京大学学习，后来去了上海。"
 .\.venv\Scripts\python.exe demo_server.py
 ```
 
-浏览器打开 `http://127.0.0.1:8766/`。以后也可双击 `start_demo.bat`，保持命令窗口开启。首次模型权重下载约 13 MB；首次训练需要联网下载 MSRA 数据。CPU 训练仍可能需要几分钟。要扩大实验，可提高 `--train-size`、`--dev-size`、`--test-size` 和 `--epochs`。
+浏览器打开 `http://127.0.0.1:8766/`。以后也可双击 `start_demo.bat`，保持命令窗口开启。Mini 预训练权重约 35 MB；首次训练需要联网下载 MSRA 数据。完整 CPU 实验可能需要较长时间。要扩大实验，可提高 `--train-size`、`--dev-size`、`--test-size` 和 `--epochs`。
 
 ## 已完成的本机实验
 
-当前 demo 使用 40000/1024/500 句训练/开发/测试抽样、5 轮训练得到的模型。本机测试集实体级 Precision **87.9%**、Recall **87.9%**、F1 **87.9%**。这不是完整 MSRA 数据集的论文复现成绩：句长限制为 96 字，测试集是独立抽取的 500 句。详细类别结果和训练曲线见 [实验报告](bert_bilstm_crf_report.md)。演示输入“张三在北京大学学习，后来去了上海。”时，模型识别出张三（人名）、北京大学（机构名）、上海（地名）。
+当前 demo 使用 UER Mini，在 40000/1024/500 句训练/开发/测试抽样、5 轮训练后，本机测试集实体级 Precision **92.1%**、Recall **90.1%**、F1 **91.1%**。这不是完整 MSRA 数据集的论文复现成绩：句长限制为 96 字，测试集是独立抽取的 500 句。详细类别结果和训练曲线见 [实验报告](bert_bilstm_crf_report.md)。演示输入“张三在北京大学学习，后来去了上海。”时，模型识别出张三（人名）、北京大学（机构名）、上海（地名）。
 
-此前分别训练过 2048 句和 8192 句模型；新测试集排除了这两次已使用的测试行。在**同一批新测试句子**上，8192 句模型 F1 为 **81.0%**，40000 句模型为 **87.9%**；机构名 F1 从 **74.8%** 提高到 **85.9%**。这是一次同集对照，不能当作对所有文本都提高 6.9 个百分点的保证。三次实验的配置、抽样行号及逐类指标在 `experiments/`；模型权重不上传。重新训练当前模型可用：
+此前分别训练过 2048 句、8192 句和 40000 句 Tiny 模型；Mini 实验的测试行排除了这三次已使用的测试行。在**同一批新测试句子**上，40000 句 Tiny 的 F1 为 **86.8%**，40000 句 Mini 为 **91.1%**；机构名 F1 从 **81.9%** 提高到 **87.8%**。这是一次同集对照，不能当作对所有文本都提高 4.3 个百分点的保证。各实验的配置、抽样行号及逐类指标在 `experiments/`；模型权重不上传。重新训练当前模型可用：
 
 ```powershell
-.\.venv\Scripts\python.exe bert_bilstm_crf.py train --train-size 40000 --dev-size 1024 --test-size 500 --epochs 5 --batch-size 16 --threads 8 --seed 2028 --exclude-test-lines experiments\pilot_run.json --exclude-test-lines experiments\final_run.json
+.\.venv\Scripts\python.exe bert_bilstm_crf.py train --model mini --train-size 40000 --dev-size 1024 --test-size 500 --epochs 5 --batch-size 16 --threads 8 --seed 2029 --exclude-test-lines experiments\pilot_run.json --exclude-test-lines experiments\final_run.json --exclude-test-lines experiments\large_run.json
 ```
 
 `--device auto` 默认优先使用可用的 CUDA，否则使用 CPU。此次本机运行使用 CPU。
@@ -48,12 +48,12 @@ py -3.11 -m venv .venv
 ## 文件
 
 - `data.py`：公开数据下载与 MD5 校验。
-- `download_model.py`：下载固定版本的 UER 中文 BERT 结构预训练模型。
+- `download_model.py`：下载固定版本的 UER Tiny 或 Mini 预训练模型。
 - `bert_bilstm_crf.py`：字符与 token 对齐、模型、训练、评估和预测。
 - `demo_server.py`、`demo.html`：本地网页演示。
 - `test_bert_bilstm_crf.py`：CRF 精确性和数据划分测试。
 - `compare_checkpoints.py`：在同一测试抽样上比较两个已冻结的 checkpoint。
-- `experiments/`：三次实验的配置、抽样行号及同集对照结果，方便核对和复现。
+- `experiments/`：四次实验的配置、抽样行号、同集对照结果及本机软件版本，方便核对和复现。
 
 运行测试：
 

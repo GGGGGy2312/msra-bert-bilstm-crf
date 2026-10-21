@@ -10,15 +10,18 @@ import torch
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
-from bert_bilstm_crf import BertBiLstmCrf, MODEL_DIR, collate, encode, evaluate, read_msra
+from bert_bilstm_crf import BertBiLstmCrf, collate, encode, evaluate, read_msra
 from data import ensure_file
+from download_model import ensure_model
 
 
-def score(checkpoint_dir: Path, test_rows: list[dict], tokenizer, max_chars: int) -> dict:
+def score(checkpoint_dir: Path, test_rows: list[dict], max_chars: int) -> dict:
     metadata = json.loads((checkpoint_dir / "run.json").read_text(encoding="utf-8"))
     if metadata["max_chars"] != max_chars:
         raise ValueError("checkpoints use different maximum text lengths")
-    model = BertBiLstmCrf(MODEL_DIR, hidden=metadata["hidden"])
+    model_dir = ensure_model(metadata.get("model_key", "tiny"))
+    tokenizer = AutoTokenizer.from_pretrained(model_dir, use_fast=True)
+    model = BertBiLstmCrf(model_dir, hidden=metadata["hidden"])
     model.load_state_dict(torch.load(checkpoint_dir / "best.pt", map_location="cpu", weights_only=True))
     rows = [encode(row, tokenizer, max_chars) for row in test_rows]
     loader = DataLoader(rows, batch_size=8,
@@ -39,10 +42,9 @@ def main() -> None:
                  if row["line"] in selected]
     if len(test_rows) != len(selected):
         raise ValueError("candidate test rows are missing")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR, use_fast=True)
     result = {"test_lines": sorted(selected),
-              "baseline": score(args.baseline_dir, test_rows, tokenizer, candidate["max_chars"]),
-              "candidate": score(args.candidate_dir, test_rows, tokenizer, candidate["max_chars"])}
+              "baseline": score(args.baseline_dir, test_rows, candidate["max_chars"]),
+              "candidate": score(args.candidate_dir, test_rows, candidate["max_chars"])}
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     for name in ("baseline", "candidate"):
         print(f"{name} F1: {result[name]['overall']['f1']:.2%}")
