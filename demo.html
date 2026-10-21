@@ -25,10 +25,11 @@
     button.secondary{background:#fff;color:#1b705d;border-color:#b6d3ca} button.secondary:hover:not(:disabled){background:#eaf7f1} button:disabled{opacity:.55;cursor:wait;box-shadow:none}
     .small{font-size:13px;color:#627987} #status{min-height:24px;margin:12px 0 0;color:#1b705d;font-size:14px;font-weight:600} #status.error{color:#ad342b}
     .help{margin:3px 0 0}.legend{display:flex;gap:15px;flex-wrap:wrap;color:#516978;font-size:14px;margin:0 0 16px}.dot{width:12px;height:12px;display:inline-block;border-radius:3px;margin-right:6px;vertical-align:-1px}
-    #entityStats{margin-bottom:17px}#entityStats .stat{font-size:15px;padding:10px 14px}
+    #entityStats{margin-bottom:10px}#entityStats button{font-size:14px;padding:9px 13px;border:1px solid #d5e4ea;border-radius:9px;background:#f2f7f9;color:#35596a;box-shadow:none}#entityStats button:hover:not(:disabled){background:#e4f2ed;box-shadow:none}#entityStats button[aria-pressed="true"]{background:#1b705d;border-color:#1b705d;color:#fff}
+    .result-hint{margin:0 0 16px;color:#627987;font-size:13px}
     .result-label{font-size:14px;font-weight:700;color:#3a5360;margin:22px 0 9px}.sentence{font-size:19px;line-height:2.2;white-space:pre-wrap;overflow-wrap:anywhere;background:#fbfdfd;border:1px solid #dce8ed;border-radius:12px;padding:18px 20px}
-    mark{border-radius:5px;padding:2px 3px;color:#172b3a;box-decoration-break:clone}.person{background:#ffe1d5}.org{background:#d9e8ff}.place{background:#d9f2df}
-    .scroll{overflow:auto;border:1px solid #e1eaef;border-radius:12px}table{width:100%;border-collapse:collapse;min-width:540px}th,td{text-align:left;padding:12px 15px;border-bottom:1px solid #e8eff2}th{color:#4f6773;font-size:13px;font-weight:700;background:#f3f8fa;position:sticky;top:0}tr:last-child td{border-bottom:0}tbody tr:nth-child(even){background:#fbfdfd}
+    mark{border-radius:5px;padding:2px 3px;color:#172b3a;box-decoration-break:clone;cursor:pointer;transition:opacity .15s,box-shadow .15s}.person{background:#ffe1d5}.org{background:#d9e8ff}.place{background:#d9f2df}mark.filtered-out{opacity:.25}mark.selected{box-shadow:0 0 0 3px #1b705d}mark:focus-visible{outline:3px solid #1b705d;outline-offset:3px}
+    .scroll{overflow:auto;border:1px solid #e1eaef;border-radius:12px}table{width:100%;border-collapse:collapse;min-width:540px}th,td{text-align:left;padding:12px 15px;border-bottom:1px solid #e8eff2}th{color:#4f6773;font-size:13px;font-weight:700;background:#f3f8fa;position:sticky;top:0}tr:last-child td{border-bottom:0}tbody tr:nth-child(even){background:#fbfdfd}tbody tr:not([hidden]){cursor:pointer}tbody tr:not([hidden]):hover{background:#eaf7f1}tbody tr.selected{background:#dff2eb}tbody tr:focus-visible{outline:3px solid #1b705d;outline-offset:-3px}
     footer{font-size:13px;color:#617781;line-height:1.7;margin:18px 4px}
     @media(max-width:600px){main{padding:12px 12px 36px}header{padding:28px 22px}.card{padding:22px 18px;border-radius:16px}.sentence{font-size:17px;padding:14px}.input-meta{align-items:flex-start;flex-direction:column}.controls button.primary{width:100%}}
     @media(prefers-reduced-motion:reduce){button{transition:none}}
@@ -53,7 +54,8 @@
   <section class="card" id="result" hidden>
     <div class="section-head"><span class="step" aria-hidden="true">2</span><h2>识别结果</h2></div>
     <div class="legend"><span><i class="dot person"></i>人名</span><span><i class="dot org"></i>机构名</span><span><i class="dot place"></i>地名</span></div>
-    <div class="statline" id="entityStats" aria-label="实体类别统计"></div>
+    <div class="statline" id="entityStats" role="group" aria-label="按实体类别筛选"></div>
+    <p class="result-hint" id="filterHint">点击类别筛选；点击高亮词或表格行可定位同一实体。</p>
     <div class="result-label">原文高亮</div><div class="sentence" id="highlight"></div>
     <div class="result-label">实体明细（位置从 0 开始，结束位置不包含该字符）</div>
     <div class="scroll"><table><thead><tr><th>实体</th><th>类别</th><th>起始位置</th><th>结束位置</th></tr></thead><tbody id="rows"></tbody></table></div>
@@ -85,31 +87,60 @@ const advancedText=`李华从北京大学毕业后加入中国科学院，在北
 第二周，赵敏和李华在上海交通大学整理资料，并向中国科学院提交阶段报告。王明则前往杭州，与浙江大学的同事继续研究。`;
 const count=document.querySelector('#count');
 const entityStats=document.querySelector('#entityStats'),exportButton=document.querySelector('#export'),copyButton=document.querySelector('#copy');
-let lastResult=null,requestId=0;
+const filterHint=document.querySelector('#filterHint');
+let lastResult=null,requestId=0,entityViews=[],activeLabel='all';
 function updateCount(){count.textContent=`${[...input.value].length}/2000`;}
-function clearResult(){requestId++;result.hidden=true;lastResult=null;exportButton.disabled=true;copyButton.disabled=true;}
+function clearResult(){requestId++;result.hidden=true;lastResult=null;entityViews=[];exportButton.disabled=true;copyButton.disabled=true;}
 function loadText(text,message=''){input.value=text;updateCount();clearResult();status.className='';status.textContent=message;}
 input.addEventListener('input',()=>{updateCount();clearResult();status.textContent='';});updateCount();
 exampleSelect.addEventListener('change',()=>{const example=examples[Number(exampleSelect.value)];loadText(example.text,`已载入“${example.name}”，点击“开始识别”。`);});
 document.querySelector('#advanced').onclick=()=>loadText(advancedText,'已载入多段进阶案例，点击“开始识别”。');
 document.querySelector('#clear').onclick=()=>{loadText('','已清空，请输入中文或选择示例。');input.focus();};
 input.addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();run.click();}});
+function setFilter(label){
+  activeLabel=label;
+  let visible=0;
+  for(const view of entityViews){
+    const show=label==='all'||view.entity.label===label;
+    view.row.hidden=!show;view.mark.classList.toggle('filtered-out',!show);
+    if(!show){view.row.classList.remove('selected');view.mark.classList.remove('selected');view.row.setAttribute('aria-selected','false');view.mark.setAttribute('aria-pressed','false');}
+    if(show)visible++;
+  }
+  for(const button of entityStats.querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.dataset.label===label));
+  filterHint.textContent=`当前显示 ${visible} / ${entityViews.length} 个实体。点击高亮词或表格行可定位同一实体；复制和下载包含完整结果。`;
+}
+function selectEntity(index,source){
+  const view=entityViews[index];if(!view||view.row.hidden)return;
+  for(const item of entityViews){item.mark.classList.remove('selected');item.row.classList.remove('selected');item.mark.setAttribute('aria-pressed','false');item.row.setAttribute('aria-selected','false');}
+  view.mark.classList.add('selected');view.row.classList.add('selected');view.mark.setAttribute('aria-pressed','true');view.row.setAttribute('aria-selected','true');
+  (source==='mark'?view.row:view.mark).scrollIntoView({behavior:'smooth',block:'center'});
+}
 function draw(data){
-  result.hidden=false;highlight.replaceChildren();rows.replaceChildren();entityStats.replaceChildren();let position=0;
+  result.hidden=false;highlight.replaceChildren();rows.replaceChildren();entityStats.replaceChildren();entityViews=[];let position=0;
   const counts={人名:0,机构名:0,地名:0};
   for(const entity of data.entities){
     if(entity.start<position)continue;
     highlight.append(document.createTextNode(data.text.slice(position,entity.start)));
-    const mark=document.createElement('mark');mark.className=classes[entity.label]||'';mark.textContent=entity.text;highlight.append(mark);
+    const index=entityViews.length;
+    const mark=document.createElement('mark');mark.className=classes[entity.label]||'';mark.textContent=entity.text;mark.tabIndex=0;mark.setAttribute('role','button');mark.setAttribute('aria-pressed','false');mark.setAttribute('aria-label',`${entity.text}，${entity.label}，位置 ${entity.start} 到 ${entity.end}，定位表格行`);highlight.append(mark);
     position=entity.end;
     counts[entity.label]=(counts[entity.label]||0)+1;
-    const tr=document.createElement('tr');
+    const tr=document.createElement('tr');tr.tabIndex=0;tr.setAttribute('aria-selected','false');tr.setAttribute('aria-label',`${entity.text}，${entity.label}，位置 ${entity.start} 到 ${entity.end}，定位原文`);
     for(const value of [entity.text,entity.label,entity.start,entity.end]){const td=document.createElement('td');td.textContent=value;tr.append(td);}
     rows.append(tr);
+    entityViews.push({entity,mark,row:tr});
+    mark.addEventListener('click',()=>selectEntity(index,'mark'));
+    mark.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();selectEntity(index,'mark');}});
+    tr.addEventListener('click',()=>selectEntity(index,'row'));
+    tr.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();selectEntity(index,'row');}});
   }
   highlight.append(document.createTextNode(data.text.slice(position)));
   if(!data.entities.length){const tr=document.createElement('tr');const td=document.createElement('td');td.colSpan=4;td.textContent='未识别到实体';tr.append(td);rows.append(tr);}
-  for(const [label,value] of Object.entries(counts)){const span=document.createElement('span');span.className='stat';span.textContent=`${label} ${value}`;entityStats.append(span);}
+  for(const [label,value] of [['all',entityViews.length],...Object.entries(counts)]){
+    const button=document.createElement('button');button.type='button';button.dataset.label=label;button.textContent=`${label==='all'?'全部':label} ${value}`;
+    button.addEventListener('click',()=>setFilter(label));entityStats.append(button);
+  }
+  setFilter('all');
   lastResult=data;exportButton.disabled=false;copyButton.disabled=false;
   result.scrollIntoView({behavior:'smooth',block:'start'});
 }
