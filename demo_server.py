@@ -151,6 +151,8 @@ class Handler(BaseHTTPRequestHandler):
             run = json.loads(path.read_text(encoding="utf-8"))
             self.send_json(200, {"trained": True,
                                  "model": run.get("model_key", "tiny"),
+                                 "checkpoint_method": run.get("checkpoint_method"),
+                                 "blend_alpha_current": run.get("blend_alpha_current"),
                                  "train_size": run["train_size"],
                                  "dev_size": run["dev_size"], "test_size": run["test_size"],
                                  "f1": run["test"]["overall"]["f1"],

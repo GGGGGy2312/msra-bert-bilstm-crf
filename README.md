@@ -33,16 +33,18 @@ py -3.11 -m venv .venv
 
 ## 已完成的本机实验
 
-当前 demo 使用 UER Mini：先在 40000 条训练句和 1024 条开发句上训练 5 轮，再从该权重以较低学习率继续训练 1 轮。新检查点的开发集 F1 为 **93.68%**，高于原检查点的 **93.43%**；再尝试 1 轮后降至 93.29%，因此保留前一轮。在同一批**此前未用过**的 500 条测试句上，原检查点 F1 **89.55%**，当前 Demo 权重 F1 **90.42%**，提高 **0.87 个百分点**。详细计数、逐类结果和训练记录见 [实验报告](bert_bilstm_crf_report.md)。继续训练只加载模型权重，优化器会重新初始化。演示输入“张三在北京大学学习，后来去了上海。”时，模型识别出张三（人名）、北京大学（机构名）、上海（地名）。
+**当前 Demo** 使用 UER Mini 的两个相邻检查点做权重插值：旧 5 轮检查点占 25%，继续训练 1 轮的检查点占 75%。插值比例只按 1024 句开发集选择，实体级 F1 从继续训练检查点的 **93.68%** 提高到 **93.96%**。随后在另一批此前未用于项目评估的 500 条测试句上做同集对照：继续训练检查点 **90.00%**，插值候选 **90.31%**，提高 **0.31 个百分点**。详细结果、逐类得失和复现方法见 [权重插值实验](BLEND_STUDY.md)。该权重仍来自原有训练数据，没有增加训练轮数；演示短句仍识别张三、北京大学和上海。
 
-此前分别训练过 2048 句、8192 句和 40000 句 Tiny 模型；原 5 轮 Mini 的测试行排除了这三次已使用的测试行。在**当时同一批测试句**上，40000 句 Tiny 的 F1 为 **86.8%**，原 Mini 为 **91.1%**。本次新测试集又排除了原 Mini 已使用的测试行。**91.1% 与 90.42% 来自两批不同测试句，不能直接比较。**各实验的配置、抽样行号及逐类指标在 `experiments/`；模型权重不上传。重新训练原模型，再继续训练 1 轮可用：
+此前单独继续训练曾使另一批 500 句上的 F1 从 **89.55%** 提高到 **90.42%**。**90.42% 与本轮 90.31% 来自不同测试句，不可直接比较。**历史训练及同集对照见 [实验报告](bert_bilstm_crf_report.md)。
+
+此前分别训练过 2048 句、8192 句和 40000 句 Tiny 模型；原 5 轮 Mini 的测试行排除了这三次已使用的测试行。在**当时同一批测试句**上，40000 句 Tiny 的 F1 为 **86.8%**，原 Mini 为 **91.1%**。本轮新测试集排除了此前项目使用过的 2500 条测试行。各实验的配置、抽样行号及逐类指标在 `experiments/`；模型权重不上传。重新训练原模型，再继续训练 1 轮可用：
 
 ```powershell
-.\.venv\Scripts\python.exe bert_bilstm_crf.py train --model mini --train-size 40000 --dev-size 1024 --test-size 500 --epochs 5 --batch-size 16 --threads 8 --seed 2029 --exclude-test-lines experiments\pilot_run.json --exclude-test-lines experiments\final_run.json --exclude-test-lines experiments\large_run.json
-.\.venv\Scripts\python.exe bert_bilstm_crf.py train --model mini --train-size 40000 --dev-size 1024 --test-size 500 --epochs 1 --batch-size 16 --threads 8 --seed 2029 --bert-lr 0.00001 --head-lr 0.0003 --init-checkpoint .cache\bert_bilstm_crf\best.pt --output-dir .cache\mini_resume --report .cache\mini_resume_report.md --exclude-test-lines experiments\pilot_run.json --exclude-test-lines experiments\final_run.json --exclude-test-lines experiments\large_run.json --exclude-test-lines experiments\mini_run.json
+.\.venv\Scripts\python.exe bert_bilstm_crf.py train --model mini --train-size 40000 --dev-size 1024 --test-size 500 --epochs 5 --batch-size 16 --threads 8 --seed 2029 --output-dir .cache\mini_previous --exclude-test-lines experiments\pilot_run.json --exclude-test-lines experiments\final_run.json --exclude-test-lines experiments\large_run.json
+.\.venv\Scripts\python.exe bert_bilstm_crf.py train --model mini --train-size 40000 --dev-size 1024 --test-size 500 --epochs 1 --batch-size 16 --threads 8 --seed 2029 --bert-lr 0.00001 --head-lr 0.0003 --init-checkpoint .cache\mini_previous\best.pt --output-dir .cache\mini_resume --report .cache\mini_resume_report.md --exclude-test-lines experiments\pilot_run.json --exclude-test-lines experiments\final_run.json --exclude-test-lines experiments\large_run.json --exclude-test-lines experiments\mini_run.json
 ```
 
-继续训练时必须保持训练和开发样本行号相同；`--init-checkpoint` 会校验这些行号，训练中每轮写入 `progress.json`，中断后可用 `--init-run` 指向该文件恢复权重。以上命令把候选权重保存在单独目录，评估后再决定是否切换 Demo。`--device auto` 默认优先使用可用的 CUDA，否则使用 CPU。此次本机运行使用 CPU。
+继续训练时必须保持训练和开发样本行号相同；`--init-checkpoint` 会校验这些行号，训练中每轮写入 `progress.json`，中断后可用 `--init-run` 指向该文件恢复权重。以上命令把候选权重保存在单独目录，避免覆盖当前 Demo。重建插值权重的步骤见 [权重插值实验](BLEND_STUDY.md)。`--device auto` 默认优先使用可用的 CUDA，否则使用 CPU。此次本机运行使用 CPU。
 
 ## 评估规则
 
@@ -59,6 +61,7 @@ py -3.11 -m venv .venv
 - `DEMO_GUIDE.md`：进阶案例的展示顺序和结果解释。
 - `test_bert_bilstm_crf.py`：CRF 精确性和数据划分测试。
 - `compare_checkpoints.py`：在同一测试抽样上比较两个已冻结的 checkpoint。
+- `blend_checkpoints.py`：开发集选择检查点插值比例，复核已发布的独立测试对照。
 - `evaluate_boundary_recovery.py`：用开发集构造跨切点长段落，对比旧分段与边界补充推理。
 - `experiments/`：各次实验的配置、抽样行号、同集对照结果及本机软件版本，方便核对和复现。
 
