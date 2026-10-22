@@ -20,6 +20,7 @@ from download_model import ensure_model
 ROOT = Path(__file__).resolve().parent
 LOCK = threading.Lock()
 COMPONENTS = None
+BASELINE_COMPONENTS = None
 MAX_INPUT_CHARS = 2000
 
 
@@ -103,39 +104,72 @@ def decode_segments(text: str, segments: list[tuple[int, str]], model,
     return rows
 
 
+def load_components(directory: Path) -> tuple:
+    checkpoint = directory / "best.pt"
+    metadata_file = directory / "run.json"
+    if not checkpoint.exists() or not metadata_file.exists():
+        raise ValueError(f"本机缺少模型权重：{directory.name}")
+    metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+    model_dir = ensure_model(metadata.get("model_key", "tiny"))
+    tokenizer = AutoTokenizer.from_pretrained(model_dir, use_fast=True)
+    model = BertBiLstmCrf(model_dir, hidden=metadata["hidden"])
+    model.load_state_dict(torch.load(checkpoint, map_location="cpu", weights_only=True))
+    model.eval()
+    return model, tokenizer, metadata
+
+
+def predict_with_components(text: str, components: tuple,
+                            recover_boundaries: bool = True) -> list[dict]:
+    model, tokenizer, metadata = components
+    if len(text) > MAX_INPUT_CHARS:
+        raise ValueError(f"最多输入 {MAX_INPUT_CHARS} 字")
+    if not text.strip():
+        raise ValueError("请输入中文文本")
+    segments = segment_text(text, metadata["max_chars"])
+    rows = decode_segments(text, segments, model, tokenizer, metadata["max_chars"])
+    if recover_boundaries:
+        windows = boundary_windows(text, segments, metadata["max_chars"])
+        contextual = decode_segments(text, [(start, part) for _, start, part in windows],
+                                     model, tokenizer, metadata["max_chars"], True)
+        recovered = []
+        for row in contextual:
+            boundary = windows[row.pop("segment_index")][0]
+            if row["start"] < boundary < row["end"]:
+                recovered.append(row)
+        rows = merge_boundary_rows(rows, recovered)
+    return sorted(rows, key=lambda row: row["start"])
+
+
 def predict_rows(text: str, recover_boundaries: bool = True) -> list[dict]:
     global COMPONENTS
     with LOCK:
         if COMPONENTS is None:
-            checkpoint = OUTPUT_DIR / "best.pt"
-            metadata_file = OUTPUT_DIR / "run.json"
-            if not checkpoint.exists() or not metadata_file.exists():
-                raise ValueError("尚未训练模型，请先运行 python bert_bilstm_crf.py train")
-            metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
-            model_dir = ensure_model(metadata.get("model_key", "tiny"))
-            tokenizer = AutoTokenizer.from_pretrained(model_dir, use_fast=True)
-            model = BertBiLstmCrf(model_dir, hidden=metadata["hidden"])
-            model.load_state_dict(torch.load(checkpoint, map_location="cpu", weights_only=True))
-            model.eval()
-            COMPONENTS = model, tokenizer, metadata
-        model, tokenizer, metadata = COMPONENTS
-        if len(text) > MAX_INPUT_CHARS:
-            raise ValueError(f"最多输入 {MAX_INPUT_CHARS} 字")
-        if not text.strip():
-            raise ValueError("请输入中文文本")
-        segments = segment_text(text, metadata["max_chars"])
-        rows = decode_segments(text, segments, model, tokenizer, metadata["max_chars"])
-        if recover_boundaries:
-            windows = boundary_windows(text, segments, metadata["max_chars"])
-            contextual = decode_segments(text, [(start, part) for _, start, part in windows],
-                                         model, tokenizer, metadata["max_chars"], True)
-            recovered = []
-            for row in contextual:
-                boundary = windows[row.pop("segment_index")][0]
-                if row["start"] < boundary < row["end"]:
-                    recovered.append(row)
-            rows = merge_boundary_rows(rows, recovered)
-        return sorted(rows, key=lambda row: row["start"])
+            COMPONENTS = load_components(OUTPUT_DIR)
+        return predict_with_components(text, COMPONENTS, recover_boundaries)
+
+
+def compare_rows(text: str) -> dict:
+    global COMPONENTS, BASELINE_COMPONENTS
+    baseline_dir = ROOT / ".cache" / "mini_before_blend"
+    with LOCK:
+        if COMPONENTS is None:
+            COMPONENTS = load_components(OUTPUT_DIR)
+        if BASELINE_COMPONENTS is None:
+            BASELINE_COMPONENTS = load_components(baseline_dir)
+        current_metadata = COMPONENTS[2]
+        baseline_metadata = BASELINE_COMPONENTS[2]
+        for key in ("model_key", "hidden", "max_chars", "train_lines", "dev_lines"):
+            if current_metadata[key] != baseline_metadata[key]:
+                raise ValueError(f"对照权重不兼容：{key}")
+        current = predict_with_components(text, COMPONENTS)
+        baseline = predict_with_components(text, BASELINE_COMPONENTS)
+    key = lambda row: (row["label"], row["start"], row["end"])
+    current_keys = {key(row) for row in current}
+    baseline_keys = {key(row) for row in baseline}
+    return {"text": text, "current_count": len(current), "baseline_count": len(baseline),
+            "common": len(current_keys & baseline_keys),
+            "current_only": [row for row in current if key(row) not in baseline_keys],
+            "baseline_only": [row for row in baseline if key(row) not in current_keys]}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -156,12 +190,14 @@ class Handler(BaseHTTPRequestHandler):
                                  "train_size": run["train_size"],
                                  "dev_size": run["dev_size"], "test_size": run["test_size"],
                                  "f1": run["test"]["overall"]["f1"],
-                                 "matched_baseline_f1": run.get("matched_baseline_f1")})
+                                 "matched_baseline_f1": run.get("matched_baseline_f1"),
+                                 "comparison_available":
+                                 (ROOT / ".cache" / "mini_before_blend" / "best.pt").exists()})
         else:
             self.send_error(404)
 
     def do_POST(self) -> None:
-        if self.path != "/api/ner":
+        if self.path not in ("/api/ner", "/api/compare"):
             self.send_error(404)
             return
         try:
@@ -169,10 +205,15 @@ class Handler(BaseHTTPRequestHandler):
             if not 1 <= size <= 32000:
                 raise ValueError("请求过长或为空")
             payload = json.loads(self.rfile.read(size))
+            if not isinstance(payload, dict):
+                raise ValueError("请求内容必须是 JSON 对象")
             text = payload.get("text", "")
             if not isinstance(text, str) or not text.strip():
                 raise ValueError("请输入中文文本")
-            self.send_json(200, {"text": text, "entities": predict_rows(text)})
+            if self.path == "/api/compare":
+                self.send_json(200, compare_rows(text))
+            else:
+                self.send_json(200, {"text": text, "entities": predict_rows(text)})
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             self.send_json(400, {"error": str(exc)})
         except Exception as exc:
