@@ -60,15 +60,15 @@
     <div class="result-label">原文高亮</div><div class="sentence" id="highlight"></div>
     <div class="result-label">实体明细（位置从 0 开始，结束位置不包含该字符）</div>
     <div class="scroll"><table><thead><tr><th>实体</th><th>类别</th><th>起始位置</th><th>结束位置</th></tr></thead><tbody id="rows"></tbody></table></div>
-    <div class="controls"><button class="secondary" id="copy" type="button">复制 JSON</button><button class="secondary" id="export" type="button">下载 JSON</button><button class="secondary" id="compare" type="button" hidden>对比插值前模型</button></div>
+    <div class="controls"><button class="secondary" id="copy" type="button">复制 JSON</button><button class="secondary" id="export" type="button">下载 JSON</button><button class="secondary" id="compare" type="button" hidden>对比上一版模型</button></div>
   </section>
   <section class="card" id="comparison" hidden>
     <div class="section-head"><span class="step" aria-hidden="true">3</span><h2>同一文本的模型对照</h2></div>
     <p class="small">两版模型使用相同文本与分段规则。差异只表示预测不同，不能据此判断哪一版正确；请结合原文人工核对。</p>
     <div class="statline" id="compareStats"></div>
-    <div class="compare-grid" style="margin-top:16px"><div class="compare-box"><h3>仅当前模型识别</h3><ul id="currentOnly"></ul></div><div class="compare-box"><h3>仅插值前模型识别</h3><ul id="baselineOnly"></ul></div></div>
+    <div class="compare-grid" style="margin-top:16px"><div class="compare-box"><h3>仅当前模型识别</h3><ul id="currentOnly"></ul></div><div class="compare-box"><h3>仅上一版模型识别</h3><ul id="baselineOnly"></ul></div></div>
   </section>
-  <footer>多数进阶案例是用于演示的虚构文本；“开发集差异案例”来自公开 MSRA 开发样本，专用于解释模型差异，不参与独立测试分数。模型输出可能有误，请人工核对。本网页展示本机训练的子集模型；测试分数不代表完整 MSRA 数据集或论文报告分数。长文本边界补充实验及训练评估见仓库 README。</footer>
+  <footer>多数进阶案例是用于演示的虚构文本；“开发集差异案例”来自公开 MSRA 开发样本，专用于解释模型差异。顶部 500 句测试抽样曾用于先前实验，本轮复用同一批句子作补充对照；另有从 train.tsv 未参与当前训练与开发的 500 句留出样本。模型输出可能有误，请人工核对。这里的分数均不代表完整 MSRA 测试集或自然长文准确率。</footer>
 </main>
 <script id="example-data" type="application/json">[
   {"name":"校园与城市","text":"张三在北京大学学习，后来去了上海。"},
@@ -80,7 +80,7 @@
   {"name":"城市访问","text":"张三从杭州出发，到南京大学参加会议，之后返回北京。"},
   {"name":"短段落","text":"张三在北京大学学习，后来去了上海。\n李华加入中国科学院，今天来到北京参加会议。赵敏毕业于浙江大学，现在住在杭州。"},
   {"name":"中文科研报道（长）","text":"李华在北京大学完成毕业论文后，前往中国科学院参加人工智能研讨会。会上，来自清华大学的王明介绍了团队在北京开展的研究，浙江大学的赵敏分享了在杭州收集的数据。会后，三人计划前往上海交通大学，与当地研究人员继续合作。"},
-  {"name":"开发集差异案例（同文对照）","text":"几乎与此同时，中国的出版工作者做了一件扎扎实实的事———将美国张纯如女士刚刚出版的《南京暴行》英文版翻译成中文，在国内出版发行。"},
+  {"name":"开发集差异案例（同文对照）","text":"不过人们注意到，此次会议并未制定出深化经济合作的具体措施，建立促进巴尔干地区贸易中心的倡议仍未得到落实。"},
   {"name":"中文项目记录（更长）","text":"秋季学期开始后，李华从北京大学来到中国科学院，在北京参与自然语言处理项目。项目组还邀请了清华大学的王明和浙江大学的赵敏，共同整理来自上海、杭州和南京的公开资料。第一次讨论会上，李华介绍了实体识别模型，王明负责数据标注，赵敏展示了实验结果。\n随后，团队前往上海交通大学参加学术交流。来自南京大学的研究人员提出了新的测试方法，中国科学院的同事补充了评估方案。会议结束后，王明从上海返回北京，赵敏留在杭州继续与浙江大学的学生核对文本，李华则准备下一轮训练。\n一个月后，三人在北京大学再次碰面。随后，李华介绍了人名、机构名和地名的识别结果，王明讨论了错误案例，赵敏计划把整理后的材料带到深圳，与当地的研究团队交流。最后，他们决定将演示程序用于下一次公开课堂，让更多学生了解中文命名实体识别。"}
 ]</script>
 <script>
@@ -171,13 +171,13 @@ exportButton.onclick=()=>{
 compareButton.onclick=async()=>{
   if(!lastResult)return;
   const text=lastResult.text,currentRequest=requestId;
-  compareButton.disabled=true;status.className='';status.textContent='正在运行插值前模型进行同文对照…';
+  compareButton.disabled=true;status.className='';status.textContent='正在运行上一版模型进行同文对照…';
   try{
     const response=await fetch('/api/compare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
     const data=await response.json();if(!response.ok)throw Error(data.error||'对照失败');
     if(currentRequest!==requestId)return;
     const stats=document.querySelector('#compareStats');stats.replaceChildren();
-    for(const label of [`当前模型 ${data.current_count} 个`,`插值前模型 ${data.baseline_count} 个`,`两版相同 ${data.common} 个`]){const item=document.createElement('span');item.className='stat';item.textContent=label;stats.append(item);}
+    for(const label of [`当前模型 ${data.current_count} 个`,`上一版模型 ${data.baseline_count} 个`,`两版相同 ${data.common} 个`]){const item=document.createElement('span');item.className='stat';item.textContent=label;stats.append(item);}
     for(const [id,items] of [['currentOnly',data.current_only],['baselineOnly',data.baseline_only]]){
       const list=document.querySelector('#'+id);list.replaceChildren();
       if(!items.length){const item=document.createElement('li');item.textContent='没有独有的实体';list.append(item);}
@@ -202,7 +202,10 @@ fetch('/api/summary').then(r=>r.json()).then(data=>{
   const stats=document.querySelector('#stats');stats.replaceChildren();
   const modelName=data.model==='mini'?'UER Mini（4 层）':'UER Tiny（2 层）';
   const blend=data.checkpoint_method==='linear_weight_interpolation'?[`权重插值：${Math.round(data.blend_alpha_current*100)}% 续训权重`]:[];
-  const labels=data.trained?[modelName,...blend,`训练 ${data.train_size} 句`,`开发 ${data.dev_size} 句`,`测试 ${data.test_size} 句`,`本轮测试 F1 ${(data.f1*100).toFixed(1)}%`,...(data.matched_baseline_f1==null?[]:[`插值前同集 ${(data.matched_baseline_f1*100).toFixed(1)}%`])] : ['模型尚未训练'];
+  const lowLr=data.checkpoint_method==='low_lr_subset_resume';
+  const labels=!data.trained?['模型尚未训练']:
+    lowLr?[modelName,`初训 ${data.source_train_size} 句`,`低学习率微调 ${data.fine_tune_size} 句`,`开发 ${data.dev_size} 句`,`复用测试抽样 ${data.test_size} 句`,`同集 F1 ${(data.f1*100).toFixed(1)}% · 前版 ${(data.matched_baseline_f1*100).toFixed(1)}%`,`新留出集 ${(data.holdout_f1*100).toFixed(1)}% · 前版 ${(data.holdout_baseline_f1*100).toFixed(1)}%`]:
+    [modelName,...blend,`训练 ${data.train_size} 句`,`开发 ${data.dev_size} 句`,`测试 ${data.test_size} 句`,`本轮测试 F1 ${(data.f1*100).toFixed(1)}%`,...(data.matched_baseline_f1==null?[]:[`插值前同集 ${(data.matched_baseline_f1*100).toFixed(1)}%`])];
   for(const label of labels){const span=document.createElement('span');span.className='stat';span.textContent=label;stats.append(span);}
   compareButton.hidden=!data.comparison_available;
 }).catch(()=>{});

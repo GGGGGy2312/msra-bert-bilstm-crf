@@ -31,28 +31,30 @@ py -3.11 -m venv .venv
 
 网页提供 11 条可选示例，选择后自动载入，涵盖校园、科研合作、高校论坛、跨城出差和两条较长的中文材料；其中“中文项目记录（更长）”有三段、341 字。给导师展示时还可点击“载入多段进阶案例”，识别三段包含重复人名、机构名和地名的文本。结果支持按类别筛选、点击高亮词定位表格行、点击表格行定位原文，再复制或下载完整 JSON。输入框支持 Ctrl + Enter 开始识别。推荐讲解顺序见 [进阶 Demo 指南](DEMO_GUIDE.md)。
 
-本机保留插值前权重时，识别结果下方还能点击“对比插值前模型”，在**同一段文本**上查看两版模型共同与独有的实体。新增的“开发集差异案例（同文对照）”来自公开 MSRA 开发样本，仅用于演示两版预测有何不同；它不是独立测试。克隆仓库后若没有该本机权重，对照按钮会隐藏，普通识别仍可使用。
+本机保留上一版权重时，识别结果下方还能点击“对比上一版模型”，在**同一段文本**上查看两版模型共同与独有的实体。新增的“开发集差异案例（同文对照）”来自公开 MSRA 开发样本，仅用于演示预测差异；它不是独立测试。克隆仓库后若没有上一版权重，对照按钮会隐藏，普通识别仍可使用。
 
 ## 已完成的本机实验
 
-**当前 Demo** 使用 UER Mini 的两个相邻检查点做权重插值：旧 5 轮检查点占 25%，继续训练 1 轮的检查点占 75%。插值比例只按 1024 句开发集选择，实体级 F1 从继续训练检查点的 **93.68%** 提高到 **93.96%**。随后在另一批此前未用于项目评估的 500 条测试句上做同集对照：继续训练检查点 **90.00%**，插值候选 **90.31%**，提高 **0.31 个百分点**。详细结果、逐类得失和复现方法见 [权重插值实验](BLEND_STUDY.md)。该权重仍来自原有训练数据，没有增加训练轮数；演示短句仍识别张三、北京大学和上海。
+**当前 Demo** 在此前 UER Mini 权重插值检查点上，以小学习率用原 40000 句训练行中的 10000 句继续训练 1 轮。开发集实体级 F1 **93.96% → 94.17%**。在未用于当前训练或开发的 500 句 `train.tsv` 留出样本上，同集 F1 **93.90% → 94.45%**；在先前已经使用过的固定 500 句 `test.tsv` 抽样上补充核验，同集 F1 **90.31% → 90.91%**。后者是复用测试抽样，不能当作新的盲测成绩。详细结果和复现命令见 [小学习率继续训练实验](LOW_LR_STUDY.md)。
+
+上一版权重插值方法：旧 5 轮检查点占 25%，继续训练检查点占 75%；1024 句开发集 F1 为 93.96%，当时新抽取的 500 句测试抽样 F1 为 90.31%。见 [权重插值实验](BLEND_STUDY.md)。
 
 此前单独继续训练曾使另一批 500 句上的 F1 从 **89.55%** 提高到 **90.42%**。**90.42% 与本轮 90.31% 来自不同测试句，不可直接比较。**历史训练及同集对照见 [实验报告](bert_bilstm_crf_report.md)。
 
-随后试过双检查点预测分数融合：开发集 F1 达 **94.18%**，但在剩余 154 句独立测试上与当前单模型同为 **93.50%**。因此没有切换 Demo；详情见 [分数融合试验](ENSEMBLE_STUDY.md)。154 句与上面的 500 句也是不同子集。
+此前试过双检查点预测分数融合：开发集 F1 达 **94.18%**，但在另选的 154 句测试抽样上与当时的单模型同为 **93.50%**，因此没有采用。详情见 [分数融合试验](ENSEMBLE_STUDY.md)；它与本轮小学习率训练是两种不同方法。
 
-此前分别训练过 2048 句、8192 句和 40000 句 Tiny 模型；原 5 轮 Mini 的测试行排除了这三次已使用的测试行。在**当时同一批测试句**上，40000 句 Tiny 的 F1 为 **86.8%**，原 Mini 为 **91.1%**。本轮新测试集排除了此前项目使用过的 2500 条测试行。各实验的配置、抽样行号及逐类指标在 `experiments/`；模型权重不上传。重新训练原模型，再继续训练 1 轮可用：
+此前分别训练过 2048 句、8192 句和 40000 句 Tiny 模型；原 5 轮 Mini 的测试行排除了这三次已使用的测试行。在**当时同一批测试句**上，40000 句 Tiny 的 F1 为 **86.8%**，原 Mini 为 **91.1%**。后来权重插值实验的新测试抽样排除了此前用过的 2500 条测试行；本轮继续训练复用了该抽样并另设未训练行留出集。各实验配置、抽样行号和逐类指标在 `experiments/`；模型权重不上传。重新训练原模型，再继续训练 1 轮可用：
 
 ```powershell
 .\.venv\Scripts\python.exe bert_bilstm_crf.py train --model mini --train-size 40000 --dev-size 1024 --test-size 500 --epochs 5 --batch-size 16 --threads 8 --seed 2029 --output-dir .cache\mini_previous --exclude-test-lines experiments\pilot_run.json --exclude-test-lines experiments\final_run.json --exclude-test-lines experiments\large_run.json
 .\.venv\Scripts\python.exe bert_bilstm_crf.py train --model mini --train-size 40000 --dev-size 1024 --test-size 500 --epochs 1 --batch-size 16 --threads 8 --seed 2029 --bert-lr 0.00001 --head-lr 0.0003 --init-checkpoint .cache\mini_previous\best.pt --output-dir .cache\mini_resume --report .cache\mini_resume_report.md --exclude-test-lines experiments\pilot_run.json --exclude-test-lines experiments\final_run.json --exclude-test-lines experiments\large_run.json --exclude-test-lines experiments\mini_run.json
 ```
 
-继续训练时必须保持训练和开发样本行号相同；`--init-checkpoint` 会校验这些行号，训练中每轮写入 `progress.json`，中断后可用 `--init-run` 指向该文件恢复权重。以上命令把候选权重保存在单独目录，避免覆盖当前 Demo。重建插值权重的步骤见 [权重插值实验](BLEND_STUDY.md)。`--device auto` 默认优先使用可用的 CUDA，否则使用 CPU。此次本机运行使用 CPU。
+通常继续训练须保持训练与开发行号相同；本轮使用 `--resume-subset-size`，允许从原训练行中固定抽取子集，同时严格保持开发行号相同，并设置 `--test-size 0`。训练中每轮写入 `progress.json`，中断后可用 `--init-run` 指向该文件恢复权重。原始和插值权重的重建步骤见 [权重插值实验](BLEND_STUDY.md)，本轮命令见 [小学习率继续训练实验](LOW_LR_STUDY.md)。`--device auto` 默认优先使用可用的 CUDA，否则使用 CPU；此次本机运行使用 CPU。
 
 ## 评估规则
 
-训练和开发样本只从 `train.tsv` 抽取，测试样本只从 `test.tsv` 抽取；种子默认 2026，样本原始行号写入 `.cache/bert_bilstm_crf/run.json`。每轮在开发集计算实体级 F1，保存开发集最优 checkpoint；每次训练只在开发集模型选择完成后用该 checkpoint 评估对应测试抽样。实体类型及字符起止位置完全一致才计为正确。
+训练和开发样本从 `train.tsv` 抽取。每轮在开发集计算实体级 F1，保存开发集最优 checkpoint；实体类型及字符起止位置完全一致才计为正确。本轮额外从 `train.tsv` 未用于当前训练和开发的行中留出 500 句评估，并在既有 `test.tsv` 抽样上做复用对照。所有抽样行号记录在 `experiments/`，数据来源和是否曾使用在报告中分别标明。
 
 结果写入 `bert_bilstm_crf_report.md`。小样本结果只能说明本机流程跑通，不代表完整数据集的论文复现分数。若需要和已发表工作比较，应保持训练集规模、模型、超参数和评估协议一致。
 
@@ -67,6 +69,7 @@ py -3.11 -m venv .venv
 - `compare_checkpoints.py`：在同一测试抽样上比较两个已冻结的 checkpoint。
 - `blend_checkpoints.py`：开发集选择检查点插值比例，复核已发布的独立测试对照。
 - `evaluate_logit_ensemble.py`：复核未采用的双检查点预测分数融合试验。
+- `evaluate_low_lr_candidate.py`、`activate_low_lr_candidate.py`：复核本轮训练并在两项同集对照提高后激活权重。
 - `evaluate_boundary_recovery.py`：用开发集构造跨切点长段落，对比旧分段与边界补充推理。
 - `experiments/`：各次实验的配置、抽样行号、同集对照结果及本机软件版本，方便核对和复现。
 

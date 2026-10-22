@@ -150,17 +150,26 @@ def predict_rows(text: str, recover_boundaries: bool = True) -> list[dict]:
 
 def compare_rows(text: str) -> dict:
     global COMPONENTS, BASELINE_COMPONENTS
-    baseline_dir = ROOT / ".cache" / "mini_before_blend"
     with LOCK:
         if COMPONENTS is None:
             COMPONENTS = load_components(OUTPUT_DIR)
+        baseline_name = ("mini_before_low_lr" if COMPONENTS[2].get("checkpoint_method") ==
+                         "low_lr_subset_resume" else "mini_before_blend")
+        baseline_dir = ROOT / ".cache" / baseline_name
         if BASELINE_COMPONENTS is None:
             BASELINE_COMPONENTS = load_components(baseline_dir)
         current_metadata = COMPONENTS[2]
         baseline_metadata = BASELINE_COMPONENTS[2]
-        for key in ("model_key", "hidden", "max_chars", "train_lines", "dev_lines"):
+        for key in ("model_key", "hidden", "max_chars", "dev_lines"):
             if current_metadata[key] != baseline_metadata[key]:
                 raise ValueError(f"对照权重不兼容：{key}")
+        if current_metadata.get("checkpoint_method") == "low_lr_subset_resume":
+            compatible_train = set(current_metadata["train_lines"]).issubset(
+                baseline_metadata["train_lines"])
+        else:
+            compatible_train = current_metadata["train_lines"] == baseline_metadata["train_lines"]
+        if not compatible_train:
+            raise ValueError("对照权重不兼容：train_lines")
         current = predict_with_components(text, COMPONENTS)
         baseline = predict_with_components(text, BASELINE_COMPONENTS)
     key = lambda row: (row["label"], row["start"], row["end"])
@@ -183,6 +192,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(200, {"trained": False})
                 return
             run = json.loads(path.read_text(encoding="utf-8"))
+            low_lr = run.get("checkpoint_method") == "low_lr_subset_resume"
+            baseline_name = "mini_before_low_lr" if low_lr else "mini_before_blend"
             self.send_json(200, {"trained": True,
                                  "model": run.get("model_key", "tiny"),
                                  "checkpoint_method": run.get("checkpoint_method"),
@@ -191,8 +202,13 @@ class Handler(BaseHTTPRequestHandler):
                                  "dev_size": run["dev_size"], "test_size": run["test_size"],
                                  "f1": run["test"]["overall"]["f1"],
                                  "matched_baseline_f1": run.get("matched_baseline_f1"),
+                                 "source_train_size": run.get("source_train_size"),
+                                 "fine_tune_size": run.get("fine_tune_size"),
+                                 "evaluation_source": run.get("evaluation_source"),
+                                 "holdout_f1": run.get("holdout_f1"),
+                                 "holdout_baseline_f1": run.get("holdout_baseline_f1"),
                                  "comparison_available":
-                                 (ROOT / ".cache" / "mini_before_blend" / "best.pt").exists()})
+                                 (ROOT / ".cache" / baseline_name / "best.pt").exists()})
         else:
             self.send_error(404)
 

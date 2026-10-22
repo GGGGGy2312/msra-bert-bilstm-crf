@@ -25,7 +25,7 @@
 
 ## 复现和文件
 
-原始两个检查点分别在本机 `.cache/mini_previous/` 和 `.cache/mini_before_blend/`；选中的候选权重在 `.cache/mini_blend_075/`，当前 Demo 在 `.cache/bert_bilstm_crf/`。切换前的 Demo 权重另存于 `.cache/mini_before_blend/`，可回退。仓库保留了开发集扫描、同集测试结果、抽样行号和激活后的元数据：`experiments/blend_dev_sweep.json`、`experiments/blend_fresh_test.json`、`experiments/blend_run.json`。权重文件未上传，使用本项目的数据与训练命令重建。
+原始两个检查点分别在本机 `.cache/mini_previous/` 和 `.cache/mini_before_blend/`；选中的插值权重在 `.cache/mini_blend_075/`，也备份于 `.cache/mini_before_low_lr/`。当前 Demo 在此基础上又做了小学习率继续训练，见 [新实验](LOW_LR_STUDY.md)。仓库保留了开发集扫描、同集测试结果、抽样行号和当时的元数据：`experiments/blend_dev_sweep.json`、`experiments/blend_fresh_test.json`、`experiments/blend_run.json`。权重文件未上传，使用本项目的数据与训练命令重建。
 
 重建旧检查点和继续训练检查点后，将继续训练的 `best.pt` 与 `run.json` 复制到 `.cache/mini_before_blend/`，保留 `.cache/mini_previous/`。然后执行：
 
@@ -35,4 +35,4 @@
 .\.venv\Scripts\python.exe blend_checkpoints.py materialize
 ```
 
-`verify` 使用已发布的相同行号复算，不重新抽取或选择测试样本。`materialize` 在独立目录生成权重，并核验保存后的张量；当前 Demo 只有在本机确认候选优于基线后才切换。插值选择可能对其他数据分布无效，尤其长文本仍需独立标注集验证。
+`verify` 使用已发布的相同行号复算，不重新抽取或选择测试样本。`materialize` 在独立目录生成权重，并核验保存后的张量；当时的 Demo 只在本机确认候选优于基线后才切换。插值选择可能对其他数据分布无效，尤其长文本仍需独立标注集验证。

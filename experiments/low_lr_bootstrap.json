@@ -1,0 +1,11 @@
+{
+  "method": "paired_sentence_bootstrap_percentile",
+  "seed": 2051,
+  "resamples": 5000,
+  "sample_size": 500,
+  "observed_difference_percentage_points": 0.5471003357851556,
+  "interval_95_percentage_points": [
+    -0.07946196961856611,
+    1.265594052023744
+  ]
+}

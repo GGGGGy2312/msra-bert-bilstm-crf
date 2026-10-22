@@ -231,9 +231,26 @@ def train(args) -> None:
     for path in args.exclude_test_lines:
         previous = json.loads(path.read_text(encoding="utf-8"))
         excluded.update(previous["test_lines"])
-    training, development, testing = sample_splits(
-        train_pool, test_pool, args.train_size, args.dev_size, args.test_size,
-        args.seed, excluded)
+    if args.resume_subset_size:
+        if args.init_checkpoint is None or args.test_size != 0:
+            raise ValueError("--resume-subset-size requires --init-checkpoint and --test-size 0")
+        previous_file = args.init_run or args.init_checkpoint.parent / "run.json"
+        previous = json.loads(previous_file.read_text(encoding="utf-8"))
+        if args.resume_subset_size > len(previous["train_lines"]):
+            raise ValueError("resume subset exceeds original training rows")
+        by_line = {row["line"]: row for row in train_pool}
+        selected = random.Random(args.subset_seed).sample(
+            previous["train_lines"], args.resume_subset_size)
+        dev_lines = previous["dev_lines"]
+        if any(line not in by_line for line in selected + dev_lines):
+            raise ValueError("resume training or development rows are missing")
+        training = [by_line[line] for line in selected]
+        development = [by_line[line] for line in dev_lines]
+        testing = []
+    else:
+        training, development, testing = sample_splits(
+            train_pool, test_pool, args.train_size, args.dev_size, args.test_size,
+            args.seed, excluded)
     tokenizer = AutoTokenizer.from_pretrained(model_dir, use_fast=True)
     if not tokenizer.is_fast:
         raise ValueError("fast tokenizer is required for word alignment")
@@ -254,9 +271,16 @@ def train(args) -> None:
                               ("max_chars", args.max_chars)):
             if previous.get(key) != expected:
                 raise ValueError(f"initial checkpoint has incompatible {key}")
-        if previous["train_lines"] != [r["line"] for r in training] or \
-                previous["dev_lines"] != [r["line"] for r in development]:
-            raise ValueError("continued training requires the same train and dev rows")
+        train_lines = [r["line"] for r in training]
+        dev_lines = [r["line"] for r in development]
+        if args.resume_subset_size:
+            compatible = (len(set(train_lines)) == len(train_lines) and
+                          set(train_lines).issubset(previous["train_lines"]) and
+                          previous["dev_lines"] == dev_lines)
+        else:
+            compatible = previous["train_lines"] == train_lines and previous["dev_lines"] == dev_lines
+        if not compatible:
+            raise ValueError("continued training requires original train rows and the same dev rows")
         model.load_state_dict(torch.load(args.init_checkpoint, map_location=device,
                                          weights_only=True))
         initial_dev = evaluate(model, dev_loader)
@@ -320,6 +344,8 @@ def train(args) -> None:
                 "batch_size": args.batch_size, "epochs": args.epochs,
                 "hidden": args.hidden, "bert_lr": args.bert_lr, "head_lr": args.head_lr,
                 "init_checkpoint": str(args.init_checkpoint) if args.init_checkpoint else None,
+                "resume_subset_size": args.resume_subset_size,
+                "subset_seed": args.subset_seed if args.resume_subset_size else None,
                 "train_md5": md5(train_file), "test_md5": md5(test_file),
                 "train_lines": [r["line"] for r in training],
                 "dev_lines": [r["line"] for r in development],
@@ -386,6 +412,9 @@ def main() -> None:
                         help="continue training from best.pt, using the same training and dev rows")
     parser.add_argument("--init-run", type=Path,
                         help="run.json or progress.json for --init-checkpoint")
+    parser.add_argument("--resume-subset-size", type=int, default=0,
+                        help="fine-tune on a seeded subset of prior train rows, keeping the prior dev rows")
+    parser.add_argument("--subset-seed", type=int, default=2043)
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--report", type=Path, default=ROOT / "bert_bilstm_crf_report.md")
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")

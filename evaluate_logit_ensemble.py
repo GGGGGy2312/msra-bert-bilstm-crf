@@ -24,8 +24,8 @@ from download_model import ensure_model
 ROOT = Path(__file__).resolve().parent
 OLD = ROOT / ".cache" / "mini_previous" / "best.pt"
 NEW = ROOT / ".cache" / "mini_before_blend" / "best.pt"
-CURRENT = ROOT / ".cache" / "bert_bilstm_crf" / "best.pt"
-RUN = ROOT / ".cache" / "bert_bilstm_crf" / "run.json"
+CURRENT = ROOT / ".cache" / "mini_before_low_lr" / "best.pt"
+RUN = ROOT / ".cache" / "mini_before_low_lr" / "run.json"
 DEV_REPORT = ROOT / "experiments" / "ensemble_dev_sweep.json"
 TEST_REPORT = ROOT / "experiments" / "ensemble_fresh_test.json"
 ALPHAS = (0.25, 0.5, 0.75)
