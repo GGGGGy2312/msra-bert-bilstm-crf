@@ -46,7 +46,64 @@ def segment_text(text: str, max_chars: int) -> list[tuple[int, str]]:
     return chunks
 
 
-def predict_rows(text: str) -> list[dict]:
+def boundary_windows(text: str, segments: list[tuple[int, str]],
+                     max_chars: int) -> list[tuple[int, int, str]]:
+    """Add context only where a hard cut interrupts a non-whitespace run."""
+    windows = []
+    punctuation = "。！？!?；;，,、"
+    for (left_start, left), (right_start, _) in zip(segments, segments[1:]):
+        boundary = left_start + len(left)
+        if boundary != right_start or left[-1] in punctuation:
+            continue
+        run_start = left_start
+        while run_start and not text[run_start - 1].isspace():
+            run_start -= 1
+        run_end = right_start
+        while run_end < len(text) and not text[run_end].isspace():
+            run_end += 1
+        start = max(run_start, boundary - max_chars // 2)
+        end = min(run_end, start + max_chars)
+        start = max(run_start, end - max_chars)
+        if start < boundary < end:
+            windows.append((boundary, start, text[start:end]))
+    return windows
+
+
+def merge_boundary_rows(rows: list[dict], recovered: list[dict]) -> list[dict]:
+    """Replace partial, overlapping spans only when a context window finds a crossing entity."""
+    selected = []
+    for candidate in sorted(recovered, key=lambda row: (row["start"], -row["end"])):
+        if not any(candidate["start"] < row["end"] and row["start"] < candidate["end"]
+                   for row in selected):
+            selected.append(candidate)
+    kept = [row for row in rows if not any(row["start"] < candidate["end"] and
+                                             candidate["start"] < row["end"]
+                                             for candidate in selected)]
+    return sorted(kept + selected, key=lambda row: row["start"])
+
+
+def decode_segments(text: str, segments: list[tuple[int, str]], model,
+                    tokenizer, max_chars: int,
+                    include_segment_index: bool = False) -> list[dict]:
+    rows = []
+    with torch.no_grad():
+        for i in range(0, len(segments), 8):
+            group = segments[i:i + 8]
+            batch = collate([encode({"text": part}, tokenizer, max_chars)
+                             for _, part in group], tokenizer.pad_token_id)
+            paths = model.crf.decode(model.emissions(batch), batch["mask"])
+            for j, ((offset, part), path) in enumerate(zip(group, paths)):
+                for kind, start, end in entities(part, [TAGS[tag] for tag in path]):
+                    row = {"text": text[offset + start:offset + end],
+                           "label": LABEL_ZH[kind], "start": offset + start,
+                           "end": offset + end}
+                    if include_segment_index:
+                        row["segment_index"] = i + j
+                    rows.append(row)
+    return rows
+
+
+def predict_rows(text: str, recover_boundaries: bool = True) -> list[dict]:
     global COMPONENTS
     with LOCK:
         if COMPONENTS is None:
@@ -67,18 +124,17 @@ def predict_rows(text: str) -> list[dict]:
         if not text.strip():
             raise ValueError("请输入中文文本")
         segments = segment_text(text, metadata["max_chars"])
-        rows = []
-        with torch.no_grad():
-            for i in range(0, len(segments), 8):
-                group = segments[i:i + 8]
-                batch = collate([encode({"text": part}, tokenizer, metadata["max_chars"])
-                                 for _, part in group], tokenizer.pad_token_id)
-                paths = model.crf.decode(model.emissions(batch), batch["mask"])
-                for (offset, part), path in zip(group, paths):
-                    for kind, start, end in entities(part, [TAGS[tag] for tag in path]):
-                        rows.append({"text": text[offset + start:offset + end],
-                                     "label": LABEL_ZH[kind], "start": offset + start,
-                                     "end": offset + end})
+        rows = decode_segments(text, segments, model, tokenizer, metadata["max_chars"])
+        if recover_boundaries:
+            windows = boundary_windows(text, segments, metadata["max_chars"])
+            contextual = decode_segments(text, [(start, part) for _, start, part in windows],
+                                         model, tokenizer, metadata["max_chars"], True)
+            recovered = []
+            for row in contextual:
+                boundary = windows[row.pop("segment_index")][0]
+                if row["start"] < boundary < row["end"]:
+                    recovered.append(row)
+            rows = merge_boundary_rows(rows, recovered)
         return sorted(rows, key=lambda row: row["start"])
 
 

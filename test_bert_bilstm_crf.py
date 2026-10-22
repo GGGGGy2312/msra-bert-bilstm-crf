@@ -7,7 +7,7 @@ import unittest
 import torch
 
 from bert_bilstm_crf import LinearCRF, entities, sample_splits
-from demo_server import segment_text
+from demo_server import boundary_windows, merge_boundary_rows, segment_text
 
 
 class CrfTests(unittest.TestCase):
@@ -18,6 +18,20 @@ class CrfTests(unittest.TestCase):
         self.assertEqual("".join(part for _, part in parts), "".join(text.split()))
         self.assertTrue(all(text[offset:offset + len(part)] == part for offset, part in parts))
         self.assertTrue(any(offset > text.index("上海") for offset, _ in parts))
+
+    def test_boundary_context_and_replacement(self):
+        text = "研究团队" * 3 + "北京大学" + "继续研究"
+        parts = segment_text(text, 14)
+        windows = boundary_windows(text, parts, 14)
+        self.assertTrue(all(len(part) <= 14 and text[start:start + len(part)] == part
+                            for _, start, part in windows))
+        self.assertTrue(any(12 < boundary < 16 and start < boundary < start + len(part)
+                            for boundary, start, part in windows))
+        original = [{"text": "北京", "label": "地名", "start": 12, "end": 14},
+                    {"text": "继续", "label": "地名", "start": 16, "end": 18}]
+        recovered = [{"text": "北京大学", "label": "机构名", "start": 12, "end": 16}]
+        self.assertEqual(merge_boundary_rows(original, recovered),
+                         [recovered[0], original[1]])
 
     def test_partition_and_decode_match_brute_force(self):
         torch.manual_seed(17)

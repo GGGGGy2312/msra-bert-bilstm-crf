@@ -47,7 +47,7 @@
     <div class="example-bar"><div class="example-field"><label class="field-label" for="exampleSelect">演示示例（选择后自动载入）</label><select id="exampleSelect"></select></div><button class="secondary" id="advanced" type="button">载入多段进阶案例</button></div>
     <label class="field-label" for="input">待识别文本</label>
     <textarea id="input" maxlength="2000" spellcheck="false">张三在北京大学学习，后来去了上海。</textarea>
-    <div class="input-meta"><span>最多 2000 字；长段落自动分段。按 Ctrl + Enter 也可开始识别。</span><span id="count">0/2000</span></div>
+    <div class="input-meta"><span>最多 2000 字；长段落自动分段，并对硬切点补充上下文。按 Ctrl + Enter 可开始识别。</span><span id="count">0/2000</span></div>
     <div class="controls"><button class="primary" id="run" type="button">开始识别 →</button><button class="secondary" id="clear" type="button">清空文本</button></div>
     <p id="status" role="status"></p>
   </section>
@@ -61,7 +61,7 @@
     <div class="scroll"><table><thead><tr><th>实体</th><th>类别</th><th>起始位置</th><th>结束位置</th></tr></thead><tbody id="rows"></tbody></table></div>
     <div class="controls"><button class="secondary" id="copy" type="button">复制 JSON</button><button class="secondary" id="export" type="button">下载 JSON</button></div>
   </section>
-  <footer>进阶案例是用于演示的虚构文本，模型输出可能有误，请人工核对。本网页展示本机训练的子集模型；测试分数不代表完整 MSRA 数据集或论文报告分数。训练设置和评估结果见仓库 README。</footer>
+  <footer>进阶案例是用于演示的虚构文本，模型输出可能有误，请人工核对。本网页展示本机训练的子集模型；测试分数不代表完整 MSRA 数据集或论文报告分数。长文本边界补充实验及训练评估见仓库 README。</footer>
 </main>
 <script id="example-data" type="application/json">[
   {"name":"校园与城市","text":"张三在北京大学学习，后来去了上海。"},
