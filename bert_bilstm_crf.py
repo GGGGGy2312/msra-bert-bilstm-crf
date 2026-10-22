@@ -307,6 +307,8 @@ def train(args) -> None:
         temporary.write_text(json.dumps(progress, ensure_ascii=False, indent=2), encoding="utf-8")
         temporary.replace(target)
     best_f1 = history[0]["dev"]["overall"]["f1"] if history else -1.0
+    best_epoch = 0 if history else None
+    best_step = 0 if history else None
     if history:
         torch.save({key: value.cpu() for key, value in model.state_dict().items()},
                    args.output_dir / "best.pt")
@@ -315,6 +317,7 @@ def train(args) -> None:
         model.train()
         losses = []
         for step, batch in enumerate(train_loader, 1):
+            model.train()
             batch = on_device(batch, device)
             optimizer.zero_grad()
             loss = model.crf.loss(model.emissions(batch), batch["labels"], batch["mask"])
@@ -324,15 +327,19 @@ def train(args) -> None:
             losses.append(float(loss.detach()))
             if step % 20 == 0 or step == len(train_loader):
                 print(f"epoch {epoch}/{args.epochs} step {step}/{len(train_loader)} loss {sum(losses)/len(losses):.4f}", flush=True)
-        dev = evaluate(model, dev_loader)
-        f1 = dev["overall"]["f1"]
-        history.append({"epoch": epoch, "train_loss": sum(losses) / len(losses), "dev": dev})
-        print(f"epoch {epoch} dev entity F1={f1:.3%}", flush=True)
-        if f1 > best_f1:
-            best_f1 = f1
-            torch.save({key: value.cpu() for key, value in model.state_dict().items()},
-                       args.output_dir / "best.pt")
-        save_progress()
+            if (args.eval_steps and step % args.eval_steps == 0) or step == len(train_loader):
+                dev = evaluate(model, dev_loader)
+                f1 = dev["overall"]["f1"]
+                history.append({"epoch": epoch, "step": step,
+                                "train_loss": sum(losses) / len(losses), "dev": dev})
+                print(f"epoch {epoch} step {step} dev entity F1={f1:.3%}", flush=True)
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best_epoch = epoch
+                    best_step = step
+                    torch.save({key: value.cpu() for key, value in model.state_dict().items()},
+                               args.output_dir / "best.pt")
+                save_progress()
     model.load_state_dict(torch.load(args.output_dir / "best.pt", map_location=device, weights_only=True))
     test = evaluate(model, test_loader)
     metadata = {"architecture": "Chinese BERT -> BiLSTM -> linear -> CRF",
@@ -342,6 +349,8 @@ def train(args) -> None:
                 "seed": args.seed, "train_size": len(training), "dev_size": len(development),
                 "test_size": len(testing), "max_chars": args.max_chars,
                 "batch_size": args.batch_size, "epochs": args.epochs,
+                "eval_steps": args.eval_steps, "best_epoch": best_epoch,
+                "best_step": best_step,
                 "hidden": args.hidden, "bert_lr": args.bert_lr, "head_lr": args.head_lr,
                 "init_checkpoint": str(args.init_checkpoint) if args.init_checkpoint else None,
                 "resume_subset_size": args.resume_subset_size,
@@ -351,7 +360,9 @@ def train(args) -> None:
                 "dev_lines": [r["line"] for r in development],
                 "test_lines": [r["line"] for r in testing],
                 "excluded_prior_test_lines": sorted(excluded),
-                "history": history, "test": test}
+                "history": history,
+                "selected_dev": max(history, key=lambda row: row["dev"]["overall"]["f1"])["dev"],
+                "test": test}
     (args.output_dir / "run.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
     report = ["# MSRA BERT-BiLSTM-CRF 复现实验", "",
               f"模型：{spec['id']}（BERT 结构，{model.bert.config.num_hidden_layers} 层、隐层 {model.bert.config.hidden_size}）→ 双向 LSTM → 线性层 → CRF。",
@@ -364,7 +375,8 @@ def train(args) -> None:
     for name, values in [("总体", test["overall"])] + [(LABEL_ZH[k], v) for k, v in test["per_class"].items()]:
         report.append(f"| {name} | {values['correct']} | {values['false_positive']} | {values['missed']} | {values['precision']:.1%} | {values['recall']:.1%} | {values['f1']:.1%} |")
     report += ["", "## 各轮开发集", ""]
-    report += [f"- Epoch {row['epoch']}：" +
+    report += [f"- Epoch {row['epoch']}" +
+               (f" step {row['step']}：" if "step" in row else "：") +
                (f"loss {row['train_loss']:.4f}，" if row['train_loss'] is not None else "继续训练前，") +
                f"F1 {row['dev']['overall']['f1']:.1%}" for row in history]
     report += ["", f"运行配置和抽样行号保存在 `{args.output_dir / 'run.json'}`。", ""]
@@ -401,6 +413,8 @@ def main() -> None:
     parser.add_argument("--max-chars", type=int, default=96)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument("--eval-steps", type=int, default=0,
+                        help="evaluate development F1 every N train steps; 0 means epoch end only")
     parser.add_argument("--hidden", type=int, default=128)
     parser.add_argument("--bert-lr", type=float, default=3e-5)
     parser.add_argument("--head-lr", type=float, default=1e-3)
@@ -423,6 +437,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.init_run and not args.init_checkpoint:
         parser.error("--init-run requires --init-checkpoint")
+    if args.eval_steps < 0:
+        parser.error("--eval-steps must be >= 0")
     if args.command == "train":
         train(args)
     else:

@@ -37,6 +37,8 @@ py -3.11 -m venv .venv
 
 **当前 Demo** 在此前 UER Mini 权重插值检查点上，以小学习率用原 40000 句训练行中的 10000 句继续训练 1 轮。开发集实体级 F1 **93.96% → 94.17%**。在未用于当前训练或开发的 500 句 `train.tsv` 留出样本上，同集 F1 **93.90% → 94.45%**；在先前已经使用过的固定 500 句 `test.tsv` 抽样上补充核验，同集 F1 **90.31% → 90.91%**。后者是复用测试抽样，不能当作新的盲测成绩。详细结果和复现命令见 [小学习率继续训练实验](LOW_LR_STUDY.md)。
 
+新增按训练步评估的机制（`--eval-steps`），在第 125 步找到开发集 F1 **94.33%** 的候选；新预留 500 句上比当前模型多识别正确 1 个实体，但复用测试子集 F1 下降，**因此当前 Demo 不切换权重**。方法、数值和失败候选见 [第 125 步候选审计](MIDPOINT_STUDY.md)。
+
 上一版权重插值方法：旧 5 轮检查点占 25%，继续训练检查点占 75%；1024 句开发集 F1 为 93.96%，当时新抽取的 500 句测试抽样 F1 为 90.31%。见 [权重插值实验](BLEND_STUDY.md)。
 
 此前单独继续训练曾使另一批 500 句上的 F1 从 **89.55%** 提高到 **90.42%**。**90.42% 与本轮 90.31% 来自不同测试句，不可直接比较。**历史训练及同集对照见 [实验报告](bert_bilstm_crf_report.md)。
@@ -50,7 +52,9 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe bert_bilstm_crf.py train --model mini --train-size 40000 --dev-size 1024 --test-size 500 --epochs 1 --batch-size 16 --threads 8 --seed 2029 --bert-lr 0.00001 --head-lr 0.0003 --init-checkpoint .cache\mini_previous\best.pt --output-dir .cache\mini_resume --report .cache\mini_resume_report.md --exclude-test-lines experiments\pilot_run.json --exclude-test-lines experiments\final_run.json --exclude-test-lines experiments\large_run.json --exclude-test-lines experiments\mini_run.json
 ```
 
-通常继续训练须保持训练与开发行号相同；本轮使用 `--resume-subset-size`，允许从原训练行中固定抽取子集，同时严格保持开发行号相同，并设置 `--test-size 0`。训练中每轮写入 `progress.json`，中断后可用 `--init-run` 指向该文件恢复权重。原始和插值权重的重建步骤见 [权重插值实验](BLEND_STUDY.md)，本轮命令见 [小学习率继续训练实验](LOW_LR_STUDY.md)。`--device auto` 默认优先使用可用的 CUDA，否则使用 CPU；此次本机运行使用 CPU。
+通常继续训练须保持训练与开发行号相同；本轮使用 `--resume-subset-size`，允许从原训练行中固定抽取子集，同时严格保持开发行号相同，并设置 `--test-size 0`。训练中每次开发集评估后写入 `progress.json`，中断后可用 `--init-run` 指向该文件恢复权重。原始和插值权重的重建步骤见 [权重插值实验](BLEND_STUDY.md)，本轮命令见 [小学习率继续训练实验](LOW_LR_STUDY.md)。`--device auto` 默认优先使用可用的 CUDA，否则使用 CPU；此次本机运行使用 CPU。
+
+继续训练可加 `--eval-steps 125` 在轮内选开发集最佳检查点；此设置仅增加开发集评估频率，不保证测试集 F1 提高。具体反例见 [第 125 步候选审计](MIDPOINT_STUDY.md)。
 
 ## 评估规则
 
@@ -70,6 +74,7 @@ py -3.11 -m venv .venv
 - `blend_checkpoints.py`：开发集选择检查点插值比例，复核已发布的独立测试对照。
 - `evaluate_logit_ensemble.py`：复核未采用的双检查点预测分数融合试验。
 - `evaluate_low_lr_candidate.py`、`activate_low_lr_candidate.py`：复核本轮训练并在两项同集对照提高后激活权重。
+- `evaluate_midpoint_candidate.py`、`evaluate_bio_decode.py`：轮内最佳步数候选与 BIO 约束解码的审计；候选没有激活。
 - `evaluate_boundary_recovery.py`：用开发集构造跨切点长段落，对比旧分段与边界补充推理。
 - `experiments/`：各次实验的配置、抽样行号、同集对照结果及本机软件版本，方便核对和复现。
 
