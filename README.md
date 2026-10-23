@@ -39,6 +39,8 @@ py -3.11 -m venv .venv
 
 新增按训练步评估的机制（`--eval-steps`），在第 125 步找到开发集 F1 **94.33%** 的候选；新预留 500 句上比当前模型多识别正确 1 个实体，但复用测试子集 F1 下降，**因此当前 Demo 不切换权重**。方法、数值和失败候选见 [第 125 步候选审计](MIDPOINT_STUDY.md)。
 
+新增 [固定开发集错误分析](ERROR_ANALYSIS.md)：逐类统计 precision、recall、F1，按实体长度统计召回率，并把漏识别分为类型错误、边界错误等。当前机构名 F1 约 **90.82%**，低于人名和地名；分析脚本核对数据、行号与权重哈希，方便复现下一轮研究。
+
 上一版权重插值方法：旧 5 轮检查点占 25%，继续训练检查点占 75%；1024 句开发集 F1 为 93.96%，当时新抽取的 500 句测试抽样 F1 为 90.31%。见 [权重插值实验](BLEND_STUDY.md)。
 
 此前单独继续训练曾使另一批 500 句上的 F1 从 **89.55%** 提高到 **90.42%**。**90.42% 与本轮 90.31% 来自不同测试句，不可直接比较。**历史训练及同集对照见 [实验报告](bert_bilstm_crf_report.md)。
@@ -75,6 +77,7 @@ py -3.11 -m venv .venv
 - `evaluate_logit_ensemble.py`：复核未采用的双检查点预测分数融合试验。
 - `evaluate_low_lr_candidate.py`、`activate_low_lr_candidate.py`：复核本轮训练并在两项同集对照提高后激活权重。
 - `evaluate_midpoint_candidate.py`、`evaluate_bio_decode.py`：轮内最佳步数候选与 BIO 约束解码的审计；候选没有激活。
+- `analyze_dev_errors.py`、`test_error_analysis.py`：固定开发集逐类、长度和错误类型分析及计数测试。
 - `evaluate_boundary_recovery.py`：用开发集构造跨切点长段落，对比旧分段与边界补充推理。
 - `experiments/`：各次实验的配置、抽样行号、同集对照结果及本机软件版本，方便核对和复现。
 

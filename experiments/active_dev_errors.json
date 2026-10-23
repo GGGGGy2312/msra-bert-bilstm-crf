@@ -1,0 +1,88 @@
+{
+  "source": "fixed train.tsv development split, not MSRA test.tsv",
+  "train_md5": "e5b4b734ef91861384f441456ad995dd",
+  "checkpoint_sha256": "24c53cc23bed81998d4a0349518844b3b2b31dbc9f7d548aa2463a798d9f1130",
+  "dev_lines_sha256": "b0bf44e51c4661323181677de9f28726484b2c820fff850d662fe2920ae49098",
+  "sentences": 1024,
+  "overall": {
+    "gold": 1516,
+    "predicted": 1519,
+    "correct": 1429,
+    "precision": 0.9407504937458855,
+    "recall": 0.9426121372031663,
+    "f1": 0.9416803953871499
+  },
+  "by_type": {
+    "PER": {
+      "gold": 400,
+      "predicted": 395,
+      "correct": 380,
+      "precision": 0.9620253164556962,
+      "recall": 0.95,
+      "f1": 0.9559748427672956
+    },
+    "ORG": {
+      "gold": 402,
+      "predicted": 393,
+      "correct": 361,
+      "precision": 0.9185750636132316,
+      "recall": 0.8980099502487562,
+      "f1": 0.9081761006289308
+    },
+    "LOC": {
+      "gold": 714,
+      "predicted": 731,
+      "correct": 688,
+      "precision": 0.9411764705882353,
+      "recall": 0.9635854341736695,
+      "f1": 0.9522491349480969
+    }
+  },
+  "by_length": {
+    "1-2": {
+      "gold": 680,
+      "correct": 640,
+      "recall": 0.9411764705882353
+    },
+    "3-4": {
+      "gold": 574,
+      "correct": 548,
+      "recall": 0.9547038327526133
+    },
+    "5-8": {
+      "gold": 215,
+      "correct": 199,
+      "recall": 0.9255813953488372
+    },
+    "9+": {
+      "gold": 47,
+      "correct": 42,
+      "recall": 0.8936170212765957
+    }
+  },
+  "missed_gold_categories": {
+    "PER": {
+      "type_error": 1,
+      "boundary_error": 7,
+      "boundary_and_type": 1,
+      "not_detected": 11
+    },
+    "ORG": {
+      "type_error": 12,
+      "boundary_error": 15,
+      "boundary_and_type": 5,
+      "not_detected": 9
+    },
+    "LOC": {
+      "type_error": 0,
+      "boundary_error": 15,
+      "boundary_and_type": 3,
+      "not_detected": 8
+    }
+  },
+  "false_positives_by_type": {
+    "LOC": 43,
+    "ORG": 32,
+    "PER": 15
+  }
+}
